@@ -312,6 +312,13 @@ CI 里没有也能正常编译（workflow 会做 CRLF 归一化）。
 不会。清理按"本次产物清单"反删，清单是发布前从固件目录实时枚举出来的；而且清单为空、
 或与现有附件零交集时会直接跳过（见 §5.4 的护栏表）。
 
+**Q：`tssi-thermal-2g.bin` 应该放哪、多大？**
+驱动 `xb-tssi.h` 写死了路径与尺寸：`rtl8192xbe/tssi-thermal-2g.bin`，**恰好 120 字节**
+（结构 `[2][2][30]` 有符号温度偏移）；5G 是 `rtl8852ce/tssi-thermal-5g.bin`，360 字节。
+放错目录驱动读不到，大小不符会被 `size != N, ignored` 丢弃。原厂 rootfs 里的
+2.4G 表本身就是全 0（原厂对 2.4G 不做温补），所以这张表是"对齐原厂行为"，
+不是 2.4G 信号问题的修复项。preflight 第 3 节会校验路径、尺寸与串位。
+
 **Q：刷完没有无线信号？**
 按顺序查：`dmesg | grep -i -E 'rtl_ax|EINVAL'` → `ls -l /lib/firmware/realtek/tyfza1/`
 → `ls -l /etc/init.d/tyfza1-factory`（**必须有 `x`**）→ `cat /lib/firmware/realtek/tyfza1/rtl8852ce/flash-calibration.bin | wc -c`（**必须是 284**）。

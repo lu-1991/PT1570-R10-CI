@@ -74,6 +74,24 @@ nb=$(find "$T" -name '*.bin' | wc -l)
 python3 scripts/verify-rf-tables.py "$T" >/dev/null \
   && ok "驱动解析器逐字段模拟通过" || bad "有射频表解析不过"
 
+# TSSI 温补表：路径与大小必须和驱动 request_firmware 的期望一致
+# （xb-tssi.h: rtl8192xbe/tssi-thermal-2g.bin = curves[2][2][30] = 120B；
+#   c-tssi.h:  rtl8852ce/tssi-thermal-5g.bin  = curves[3][2][2][30] = 360B）。
+# 2026-11-16 踩坑：2g 表被放进 rtl8852ce/ 且 336B —— 驱动请求的是 rtl8192xbe/
+# 路径，大小不符也会被 "size != , ignored" 丢弃，等于白带。
+t2="$T/rtl8192xbe/tssi-thermal-2g.bin"
+t5="$T/rtl8852ce/tssi-thermal-5g.bin"
+[ -f "$t2" ] && [ "$(wc -c < "$t2")" = 120 ] \
+  && ok "2.4G TSSI 表 120B（rtl8192xbe/，与驱动期望一致）" \
+  || bad "2.4G TSSI 表缺失或大小 != 120B（$t2）"
+[ -f "$t5" ] && [ "$(wc -c < "$t5")" = 360 ] \
+  && ok "5G TSSI 表 360B（rtl8852ce/）" \
+  || bad "5G TSSI 表缺失或大小 != 360B（$t5）"
+# 2.4G 目录下不允许出现 5g 命名、5G 目录下不允许出现 2g 命名（防再次放错）
+[ ! -f "$T/rtl8852ce/tssi-thermal-2g.bin" ] && [ ! -f "$T/rtl8192xbe/tssi-thermal-5g.bin" ] \
+  && ok "TSSI 表未串位（2g 在 rtl8192xbe / 5g 在 rtl8852ce）" \
+  || bad "TSSI 表放错目录（2g 只能 rtl8192xbe，5g 只能 rtl8852ce）"
+
 # ---------------------------------------------------------------
 sec "4. 机型配置关键符号"
 CFG=configs/youhua_pt1570-r10.config
