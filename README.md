@@ -335,6 +335,16 @@ CI 里没有也能正常编译（workflow 会做 CRLF 归一化）。
 非 DFS）即可。若做完仍断流，抓
 `logread | grep -E 'hostapd|wifi-stability'` 和 `dmesg` 里 rtl_ax_ap 的报错再定位。
 
+**Q：系统里（web）升级没有反应，重启后固件没变？**
+旧固件的 platform.sh 用 `nand_do_upgrade` 硬编码往 UBI 卷写镜像，但运行中的
+rootfs 正挂在这个卷的 fitblk/ubiblock 设备上——卷被占用，写入静默失败，
+重启自然是旧固件（上游 8c91b228b4 "release fitblk before sysupgrade" 修复）。
+2026-11-16 起 `apply-board.sh` 会把 platform.sh 升级为 `fit_do_upgrade` 流程
+（先 `fitblk /dev/fit0` 释放块设备再写卷），并把 `fitblk` 工具复制进
+sysupgrade 的 ramfs。**验证方法**：升级完成后看 LuCI 概览「型号」，新固件显示
+`Youhua PT1570-R10 (RTL9617C, 4xGE, UBI)`；仍显示 `... FIT ABI` 就是没刷进去
+（这个标记来自朋友 2026-11-16 的实证思路，也用于区分朋友版固件）。
+
 **Q：刷完没有无线信号？**
 按顺序查：`dmesg | grep -i -E 'rtl_ax|EINVAL'` → `ls -l /lib/firmware/realtek/tyfza1/`
 → `ls -l /etc/init.d/tyfza1-factory`（**必须有 `x`**）→ `cat /lib/firmware/realtek/tyfza1/rtl8852ce/flash-calibration.bin | wc -c`（**必须是 284**）。

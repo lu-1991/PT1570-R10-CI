@@ -15,6 +15,7 @@
 #   2. target/linux/rtl9617c/image/Makefile         在 BuildImage 之前插入 Device 定义
 #   3. target/linux/rtl9617c/base-files/lib/upgrade/platform.sh
 #                                                    platform_check_image 白名单加 board_name
+#                                                    + fit_do_upgrade 升级流程修复（3b）
 # 不改 board.d/02_network：LAN 接线由 files/etc/uci-defaults/99-pt1570-fit 兜底。
 
 set -euo pipefail
@@ -95,11 +96,58 @@ else
   echo "platform.sh already lists $BOARD_NAME, skip"
 fi
 
+# ---- 3b. sysupgrade 升级流程修复（上游 8c91b228b4 "release fitblk before sysupgrade"）----
+# 2026-11-16 朋友真机实证（对应其 run31 起系统内升级可用）：
+#   旧 platform.sh 用 nand_do_upgrade 硬编码写 UBI 卷，但运行中的 rootfs 正
+#   挂在该卷的 fitblk/ubiblock 设备上 —— 卷被占用，写入无效，表现为
+#   "系统里升级成功、重启后固件没有任何变化"。
+#   上游修复：platform_do_upgrade 改用 fit_do_upgrade（fitblk 包自带，
+#   会按 DTS chosen/rootdisk 自动定位 UBI 卷，并先 `fitblk /dev/fit0`
+#   释放块设备再升级），同时把 fitblk 工具复制进 sysupgrade 的 ramfs。
+if grep -q 'fit_do_upgrade "$1"' "$PLATFORM"; then
+  echo "platform.sh already uses fit_do_upgrade, skip"
+else
+  python3 - "$PLATFORM" <<'PY'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text(encoding='utf-8')
+old_bin = "RAMFS_COPY_BIN='fw_printenv fw_setenv'\n"
+new_bin = "RAMFS_COPY_BIN='fw_printenv fw_setenv fitblk'\n"
+old_do = (
+    "platform_do_upgrade() {\n"
+    "\tCI_KERNPART=fit\n"
+    "\tCI_UBIPART=ubi_device\n"
+    "\tnand_do_upgrade \"$1\"\n"
+    "}\n"
+)
+new_do = (
+    "platform_do_upgrade() {\n"
+    "\tfit_do_upgrade \"$1\"\n"
+    "}\n"
+)
+for name, old, new in (("RAMFS_COPY_BIN", old_bin, new_bin),
+                       ("platform_do_upgrade", old_do, new_do)):
+    n = text.count(old)
+    if n != 1:
+        raise SystemExit(
+            f"ERROR: platform.sh 的 {name} 旧片段命中 {n} 次（应为 1）；"
+            "上游 20b4cf4 布局变了？请对照 8c91b228b4 手工核对")
+    text = text.replace(old, new, 1)
+p.write_text(text, encoding='utf-8')
+print('platform.sh upgraded to fit_do_upgrade flow')
+PY
+fi
+
 # ---- 结果校验 ----
 grep -q "SUPPORTED_DEVICES += ${BOARD_NAME}" "$IMG_MK" \
   || { echo "ERROR: SUPPORTED_DEVICES missing" >&2; exit 1; }
 grep -q "$BOARD_NAME" "$PLATFORM" \
   || { echo "ERROR: platform.sh whitelist missing" >&2; exit 1; }
+# 升级流程必须是 fit_do_upgrade（否则系统内升级"成功"却写不进 UBI 卷）
+grep -q 'fit_do_upgrade "$1"' "$PLATFORM" \
+  || { echo "ERROR: platform.sh 未启用 fit_do_upgrade（系统内升级会静默失败）" >&2; exit 1; }
+grep -q "fw_setenv fitblk" "$PLATFORM" \
+  || { echo "ERROR: platform.sh RAMFS_COPY_BIN 缺 fitblk" >&2; exit 1; }
 grep -q 'rootdisk' "$WRT/target/linux/rtl9617c/dts/rtl9617c-tyfza1.dtsi" \
   || { echo "ERROR: 上游 dtsi 没有 chosen.rootdisk，FIT ABI 不成立" >&2; exit 1; }
 grep -q 'volname = "fit"' "$WRT/target/linux/rtl9617c/dts/rtl9617c-tyfza1.dtsi" \

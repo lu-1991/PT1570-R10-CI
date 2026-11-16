@@ -48,7 +48,11 @@
 #include "rtl9617c-tyfza1-4ge.dts"
 
 / {
-	model = "Youhua PT1570-R10 (RTL9617C, 4xGE, FIT ABI)";
+	// 概览标记（LuCI「型号」= 这里的 model 字符串）：
+	//   ... UBI  = 本仓库 2026-11-16 之后的固件（支持系统内升级，见 apply-board.sh 3b）
+	//   之前是 "... FIT ABI"：旧固件的系统内升级静默失败，只能 uboot 刷。
+	// 换标记是为了让「看概览就知道刷没刷进去」（朋友 2026-11-16 实证的思路）。
+	model = "Youhua PT1570-R10 (RTL9617C, 4xGE, UBI)";
 	compatible = "youhua,pt1570-r10", "tianyi,tyfza1-4ge", "realtek,rtl9617c";
 
 	/*

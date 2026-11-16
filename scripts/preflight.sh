@@ -335,6 +335,20 @@ grep -q 'youhua,pt1570-r10' "$WAN_SCRIPT" \
   && ok "WAN 默认脚本按板判别" || bad "WAN 默认脚本缺板级判别"
 
 # ---------------------------------------------------------------
+sec "7d. 系统内升级修复（上游 8c91b228b4：release fitblk before sysupgrade）"
+# 2026-11-16 朋友真机实证：旧流程 nand_do_upgrade 硬编码写 UBI 卷，但运行中的
+# rootfs 正挂在该卷的 fitblk 上，卷被占用 -> "系统里升级成功、重启无变化"。
+# 修复 = platform_do_upgrade 改 fit_do_upgrade + RAMFS 复制 fitblk 工具。
+grep -q 'fit_do_upgrade "$1"' scripts/apply-board.sh \
+  && grep -q "fw_setenv fitblk" scripts/apply-board.sh \
+  && ok "apply-board.sh 注入 fit_do_upgrade 升级流程（含 ramfs fitblk）" \
+  || bad "apply-board.sh 缺 fit_do_upgrade 升级流程注入"
+# 旧流程是否清除由 apply-board.sh 的收尾断言兜底（platform.sh 缺 fit_do_upgrade 直接失败）
+grep -q '4xGE, UBI' board/dts/rtl9617c-pt1570-r10.dts \
+  && ok "概览标记 UBI（区别于旧固件 FIT ABI，看型号即知升级是否生效）" \
+  || bad "DTS model 缺 UBI 概览标记"
+
+# ---------------------------------------------------------------
 sec "8. 源码树注入深度校验（可选，WRT=源码树时执行）"
 if [ -n "${WRT:-}" ] && [ -d "$WRT/target/linux/rtl9617c" ]; then
   test -f "$WRT/target/linux/rtl9617c/dts/rtl9617c-pt1570-r10.dts" \
@@ -345,6 +359,13 @@ if [ -n "${WRT:-}" ] && [ -d "$WRT/target/linux/rtl9617c" ]; then
   grep -q "youhua,pt1570-r10" \
        "$WRT/target/linux/rtl9617c/base-files/lib/upgrade/platform.sh" \
     && ok "sysupgrade 白名单已注入" || bad "platform.sh 未注入机型"
+  grep -q 'fit_do_upgrade "$1"' \
+       "$WRT/target/linux/rtl9617c/base-files/lib/upgrade/platform.sh" \
+    && ok "platform.sh 已升级为 fit_do_upgrade 流程" \
+    || bad "platform.sh 仍是旧 nand_do_upgrade 流程（系统内升级会静默失败）"
+  grep -q "fw_setenv fitblk" \
+       "$WRT/target/linux/rtl9617c/base-files/lib/upgrade/platform.sh" \
+    && ok "RAMFS_COPY_BIN 已带 fitblk" || bad "RAMFS_COPY_BIN 缺 fitblk"
   grep -q '^CONFIG_UIMAGE_FIT_BLK=y$' "$WRT/target/linux/rtl9617c/config-6.18" \
     && ok "UIMAGE_FIT_BLK=y" || bad "缺 UIMAGE_FIT_BLK（root=/dev/fit0 挂不上）"
   grep -q '^CONFIG_MTD_ROOTFS_ROOT_DEV=y$' "$WRT/target/linux/generic/config-6.18" \
