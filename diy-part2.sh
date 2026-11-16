@@ -116,10 +116,16 @@ PY
     || fail "2.4G SSID（$SSID_24G）未写入模板"
   grep -qF "$SSID_5G" "$WIFI_UC" \
     || fail "5G SSID（$SSID_5G）未写入模板"
-  # 交还驱动推导：模板里不允许再出现任何 htmode 钉死
-  if grep -qE 'htmode[[:space:]]*=[[:space:]]*"HT20"|band_name == "2G"' "$WIFI_UC"; then
+  # 交还驱动推导：模板里不允许再出现我们曾经注入的 htmode 字面量钉死。
+  # 注意只能查 "HT20" 字面量，不能查 `band_name == "2G"` —— 上游模板第 77 行
+  # 本来就是 `if (band_name == "2G") width = 20;`（2G 带宽锁 20MHz），
+  # 2026-11-16 run 43787694475 就是因为把它当标记而误判失败。
+  if grep -qE 'htmode[[:space:]]*=[[:space:]]*"HT20"' "$WIFI_UC"; then
     fail "mac80211.uc 仍存在 htmode 钉死（应交还驱动推导）"
   fi
+  # 正向确认：推导块必须是上游原样，否则说明替换脚本把它改坏了
+  grep -qF 'filter(htmode_order, (m) => band[lc(m)])[0]' "$WIFI_UC" \
+    || fail "mac80211.uc 的 htmode 推导块被改动（应交还驱动推导）"
   echo "✅ 无线默认：5G=$SSID_5G / 2.4G=$SSID_24G，加密=none，首启即启用，htmode 交还驱动推导"
 else
   echo "::warning::未找到 $WIFI_UC，跳过无线默认值"
