@@ -7,7 +7,10 @@
 define Device/youhua_pt1570_r10
   DEVICE_VENDOR := Youhua
   DEVICE_MODEL := PT1570-R10
-  DEVICE_VARIANT := FIT
+  # 只影响显示文本（profiles.json / 固件选择器标题 / sysupgrade -l），
+  # 不进固件文件名，也不参与 sysupgrade 机型校验（那用 SUPPORTED_DEVICES）。
+  # 与 DTS model 的 "(..., UBI)" 保持一致：一看型号就知道跑的是哪套升级流程。
+  DEVICE_VARIANT := UBI
   # image.mk 会把 profile 名的下划线转成逗号（youhua,pt1570,r10），
   # 与 DTS compatible 对不上，sysupgrade 会拒绝；必须显式追加正确值。
   SUPPORTED_DEVICES += youhua,pt1570-r10

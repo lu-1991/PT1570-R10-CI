@@ -557,7 +557,7 @@ jobs:
           RELEASE_TAG="${TARGET_MODEL#*_}"
           RELEASE_TAG="${RELEASE_TAG//_/-}"
           {
-            echo "## ${TARGET_MODEL} 自动编译固件（FIT ABI）"
+            echo "## ${TARGET_MODEL} 自动编译固件（UBI）"
             echo ""
             echo "| 项目 | 值 |"
             echo "|---|---|"
@@ -604,7 +604,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ env.TARGET_MODEL }} FIT (rolling)
+          name: ${{ env.TARGET_MODEL }} UBI (rolling)
           body_path: release.txt
           make_latest: true
           files: ${{ env.FIRMWARE }}/*
