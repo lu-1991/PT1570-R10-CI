@@ -21,8 +21,8 @@
 | SoC | Realtek RTL9617C，4×ARM Cortex-A55，target `rtl9617c/generic`（`aarch64_cortex-a55`） |
 | 有线 | 4×GE（内部 GPHY 4 颗），面板标 LAN1–LAN4 |
 | 上行 | PON（`tyfza1-pon-control` 驱动，默认 VLAN `1101` + PPPoE） |
-| 5G | RTL8852CE（PCIe0 → `phy0`），HE80，默认 ch36 |
-| 2.4G | RTL8192XBE（PCIe1 → `phy1`），**强制 HT20 / 802.11n** |
+| 5G | RTL8852CE（PCIe0 → `phy0`），协议/信道由驱动能力推导（HE80 / auto），见 §6 |
+| 2.4G | RTL8192XBE（PCIe1 → `phy1`），协议/信道由驱动能力推导（HE20 / auto），见 §6 |
 | 存储 | SPI NAND + UBI 5 分区；rootfs 以 FIT 子镜像形式挂在 `/dev/fit0` |
 | 按键 | reset(gpio8)、rfkill(gpio99)、lights-toggle(gpio103) |
 | 灯 | 12 颗（internet / los / pon / phone / usb0 / usb1 / power / wps / lan0–3） |
@@ -95,8 +95,8 @@ sysupgrade -n /tmp/openwrt-...-youhua_pt1570_r10-squashfs-sysupgrade-20261114-15
 | 主机名 | 跟随机型，如 `PT1570-R10` |
 | 时区 | `Asia/Shanghai`，NTP 用国内源（aliyun / tencent / ntsc / cn.pool） |
 | WAN | `pon0.1101`（8021q）+ PPPoE + PON FE(`offload=1`)，账号密码留空待填 |
-| 5G | SSID `PT1570-R10-5G`，**开放（无密码）**，HE80，ch36 |
-| 2.4G | SSID `PT1570-R10-2.4G`，**开放（无密码）**，**HT20 / 802.11n**，ch6 |
+| 5G | SSID `PT1570-R10-5G`，**开放（无密码）**，htmode/信道交还驱动推导（预期 HE80 / auto） |
+| 2.4G | SSID `PT1570-R10-2.4G`，**开放（无密码）**，htmode/信道交还驱动推导（预期 HE20 / auto） |
 | 面板灯 | 跟随真实网口（EPHY0..3 → LAN4..LAN1） |
 
 所有默认值都是"仅在仍是出厂默认时才改"，用户动过的项不会被覆盖。
@@ -193,7 +193,7 @@ Release 是**滚动**语义（tag 固定，如 `pt1570-r10`），但产物文件
 
 ---
 
-## 6. 为什么 2.4G 要钉死 802.11n（重要）
+## 6. 无线默认值策略：对齐原厂，协议/信道交还驱动推导（重要）
 
 `package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc` 生成 `/etc/config/wireless`
 时，`htmode` 取的是**该频段支持的最高协议**：
@@ -203,22 +203,26 @@ const htmode_order = [ "EHT", "HE", "VHT", "HT" ];
 let htmode = filter(htmode_order, (m) => band[lc(m)])[0];
 ```
 
-RTL8192XBE 是 Wi-Fi 6 芯片，于是 2.4G 被推导成 **HE20**。这颗芯片的 2.4G **HE 信标安卓解析
-不了**，症状非常有辨识度：
+2026-11-16 把原厂固件 rootfs 解包对比后确认：**原厂的 `mac80211.uc` 与上游逐行相同**，
+原厂也不钉 htmode / 信道，全靠 `rtl_ax_ap` 驱动宣称的能力推导。这套驱动的频段能力是：
 
-| 设备 | 表现 |
-|---|---|
-| Windows | 能搜到、能连接、信号满格、速率正常 |
-| Android | Wi-Fi 列表里**永远没有**这个 SSID（第三方 App 里能看到原始 BSS） |
+| 频段 | HT | VHT | HE | EHT | 推导终态 |
+|---|---|---|---|---|---|
+| 2.4G（8192XB） | ✅ | ❌ | ✅ | ❌ | **HE20**（width 强制 20） |
+| 5G（8852C） | ✅ | ✅ | ✅ | ❌ | **HE80**（max_width 160 封顶 80） |
 
-换信道、换带宽、换加密、改 SSID 名字**全都无效**，因为问题不在配置项，而在信标里的 HE 元素。
+因此本仓库同样**不做任何钉死**：htmode、信道全部交还驱动推导（信道为 auto），
+首启脚本只兜 country=CN、启用、不隐藏——与原厂行为一致。
 
-本仓库用两层保证 2.4G 走纯 802.11n：
+**历史与风险提示（2026-11-14 的 HE 信标事件）**：当时真机上 2.4G 推导出 HE20，
+出现"Windows 能搜到能连、Android 永远看不到 SSID"的现象（疑似 HE 信标兼容性），
+为此曾把 2G 钉死 HT20。但该修复**从未刷机复验**，且原厂同样推导 HE20，故按用户
+决定回退为推导模式。如果刷机后手机又搜不到 2.4G：
 
-1. **编译期**：`diy-part2.sh` 用 Python 精确改写 `mac80211.uc`，`band_name == "2G"` 时
-   `htmode = "HT20"`，不参与协议推导；
-2. **首启**：`files/etc/uci-defaults/97-pt1570-r10-wifi24` 再钉一次 `HT20 / ch6 / CN / 启用 / 不隐藏`
-   （防止将来上游模板变化后静默回退，也兜住"保留配置刷机"的情况）。
+1. 先确认现象：`iw dev phy1-ap0 info` 看 `width`，`grep ieee80211ax /var/run/hostapd-phy1.conf`；
+2. 临时对策：LuCI → 网络 → 无线 → 编辑 2.4G 接口 → htmode 手动改 **HT20** 保存即可，
+   不需要重新编译；
+3. 若确认是 HE 信标问题且想长期规避，再回仓库把生成器钉回 HT20。
 
 > 顺带纠正一个常见误判：`iwinfo` 显示的 `HT Mode: HT40` **不代表真实带宽**，它读的是
 > `ht_capab` 里的 `SHORT-GI-40` 标志位。真实带宽只看 `iw dev phyX-ap0 info` 的 `width`。
@@ -237,7 +241,8 @@ RTL8192XBE 是 Wi-Fi 6 芯片，于是 2.4G 被推导成 **HE20**。这颗芯片
 │   ├── etc/init.d/tyfza1-factory            # factory 校准提取（必须精确 284 字节）
 │   ├── etc/uci-defaults/95-pt1570-wan-default  # 默认 WAN：pon0.1101 + PPPoE + PON FE
 │   ├── etc/uci-defaults/96-pt1570-r10-leds     # 面板灯 → 真实网口
-│   ├── etc/uci-defaults/97-pt1570-r10-wifi24   # 2.4G 锁定 HT20（见 §6）
+│   ├── etc/uci-defaults/97-pt1570-r10-wifi24   # 2.4G 首启兜底：country/启用/不隐藏（见 §6）
+│   ├── etc/uci-defaults/98-pt1570-r10-wifi-stability  # 断流缓解：不踢空闲终端 + country（见 FAQ）
 │   ├── etc/uci-defaults/99-pt1570-fit          # 时区/主机名/FIT 接线兜底
 │   └── lib/firmware/realtek/tyfza1/            # WiFi AP 固件 8×bin + 42 张 RFE54 射频表
 ├── board/
@@ -320,14 +325,14 @@ CI 里没有也能正常编译（workflow 会做 CRLF 归一化）。
 不是 2.4G 信号问题的修复项。preflight 第 3 节会校验路径、尺寸与串位。
 
 **Q：Wi-Fi 时不时断流 / 终端被踢下线？**
-首启脚本 `98-pt1570-r10-wifi-stability` 做了三件事：
+首启脚本 `98-pt1570-r10-wifi-stability` 做两件事：
 1. 所有 VAP `skip_inactivity_poll=1` + `disassoc_low_ack=0` —— 不再主动轮询和
    踢掉省电中的终端（最常见的"连着连着就掉"来源，终端自己会决定重连）；
-2. 5G 固定信道 **149**（CN 合法、非 DFS）—— 避免雷达误报触发信道切换/CAC
-   重新等待导致"所有终端同时掉一下"；
-3. 5G 钉 **HE80** —— 避开自研 rtl_ax_ap 驱动下未经实测的 EHT 能力。
-2.4G 的信道/htmode 仍由 97 号脚本负责，本脚本不重复。注意：uci-defaults 只在
-首启生效，刷机若"保留配置"需要手动执行或恢复出厂。若做完仍断流，抓
+2. 所有 radio 统一 `country=CN`（与原厂 92 号脚本一致）。
+协议/信道不在本脚本处理（交还驱动推导，见 §6）。注意：uci-defaults 只在首启生效，
+刷机若"保留配置"需要手动执行或恢复出厂。5G 用 auto 信道若出现"所有终端同时掉一下
+再恢复"，是 DFS 雷达误报触发信道切换——把 5G 信道手动固定到 **149**（CN 合法、
+非 DFS）即可。若做完仍断流，抓
 `logread | grep -E 'hostapd|wifi-stability'` 和 `dmesg` 里 rtl_ax_ap 的报错再定位。
 
 **Q：刷完没有无线信号？**
@@ -335,8 +340,9 @@ CI 里没有也能正常编译（workflow 会做 CRLF 归一化）。
 → `ls -l /etc/init.d/tyfza1-factory`（**必须有 `x`**）→ `cat /lib/firmware/realtek/tyfza1/rtl8852ce/flash-calibration.bin | wc -c`（**必须是 284**）。
 
 **Q：电脑能看到 2.4G，手机看不到？**
-就是 §6 的 HE 信标问题。确认 `iw dev phy1-ap0 info` 里 `width: 20 MHz`，且
-`grep -i htmode /var/run/hostapd-phy1.conf` 不带 `ieee80211ax=1`。
+参见 §6 的 HE 信标历史事件。先确认当前 htmode：`grep -i htmode /etc/config/wireless`
+（推导模式下 2.4G 为 HE20）。若怀疑是 HE 信标兼容性，LuCI 里把 2.4G htmode 手动改
+**HT20** 观察手机能否搜到；能搜到即可确认，再决定是否回仓库长期钉回。
 
 **Q：网口顺序和面板对不上？**
 `scripts/patch-upstream.sh` 里对 R10 用 `index = 4 - port` 修正命名。如果上游改了这段

@@ -1,17 +1,21 @@
 #!/bin/sh
-# PT1570-R10：2.4G 锁定 802.11n / HT20（RTL9617C + RTL8192XBE）
+# PT1570-R10：2.4G 首启兜底（country / 启用 / 不隐藏）
 #
-# 背景（2026-11-14 真机定位）：
-#   2.4G 是 Wi-Fi 6 芯片，mac80211.uc 会按"该频段支持的最高协议"把 htmode
-#   推导成 HE20。这颗芯片的 2.4G HE 信标安卓解析不了，表现为：
-#     Windows：能搜到、能连接、信号满格
-#     手机    ：Wi-Fi 列表里永远没有这个 SSID
-#   换信道、换加密、换 SSID 全都没用；降到纯 802.11n（HT20，信标无 HE 元素）
-#   后手机可正常搜到。
+# 2026-11-16 起，无线协议（htmode）与信道**不再钉死**，完全交还驱动能力推导，
+# 与原厂固件行为一致（已对比原厂 rootfs 的 /lib/wifi/mac80211.uc，逐行相同）：
+#   - 驱动宣称 HE（2G/5G 都宣称）-> 2G 推导为 HE20、5G 为 HE80
+#   - 驱动无 EHT 能力，推导永远不会选到 EHT
 #
-# 本脚本是第二道保险：编译期已改 mac80211.uc，但刷机若"保留配置"，
-# /etc/config/wireless 不会重新生成。这里在首启阶段再钉一次。
+# 历史（2026-11-14）：此脚本曾把 2.4G 的 htmode 固定为纯 802.11n、信道固定为
+# 第 6 信道，起因是"Windows 能搜到 2.4G、手机搜不到"，当时判定为 HE 信标兼容性。
+# 该判定未经真机复验（钉死后的固件从未刷机测试），且原厂同样推导出 HE20，
+# 故按用户决定恢复原厂行为。若刷机后手机仍搜不到 2.4G，可在 LuCI
+# （网络→无线→编辑）把 2.4G 的 htmode 手动改为 HT20 再观察。
 #
+# 本脚本只兜三件事（原厂 92 号脚本只补 country，这里按 R10 实际需要多兜启用）：
+#   1. country=CN（149/80MHz 合法功率表、5G/2G 都需要）
+#   2. wifi-iface 启用
+#   3. SSID 不隐藏
 # 只碰 2.4G（band=2g / hwmode=11g），5G 与 6G 完全不动。
 # uci-defaults 脚本执行后由系统删除，不会每次开机都覆盖用户的修改。
 
@@ -40,16 +44,14 @@ is_24g() {
 
 changed=0
 
-# ---- 1. 频段设备：强制 HT20 / 固定信道 6 / 国家码 CN ----
+# ---- 1. 频段设备：统一国家码 CN ----
 for dev in $(uci -q show wireless | sed -n 's/^wireless\.\([A-Za-z0-9_]*\)=wifi-device$/\1/p'); do
 	is_24g "$dev" || continue
-	uci -q set "wireless.$dev.htmode=HT20"
-	uci -q set "wireless.$dev.channel=6"
-	uci -q set "wireless.$dev.country=CN"
-	uci -q set "wireless.$dev.legacy_rates=1"
-	uci -q set "wireless.$dev.disabled=0"
-	log "$dev: 2.4G 强制 htmode=HT20 channel=6 country=CN"
-	changed=1
+	if [ "$(uci -q get "wireless.$dev.country")" != "CN" ]; then
+		uci -q set "wireless.$dev.country=CN"
+		log "$dev: 2.4G country=CN"
+		changed=1
+	fi
 done
 
 # ---- 2. 2.4G 的 VAP 必须启用且不隐藏（否则手机列表里同样看不到） ----

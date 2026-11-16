@@ -64,15 +64,16 @@ else
   echo "::warning::未找到 $CFG，跳过默认值修改"
 fi
 
-echo "---- [1b/7] 无线模板（2.4G 钉 HT20） ----"
-# ---- 1b. 无线默认值：首启即启用 + 分频段 SSID + 2.4G 锁定 802.11n ----
-# mac80211.uc 是 /etc/config/wireless 的生成器，有两个必须改掉的行为：
-#   1) 默认把 wifi-iface 写成 disabled='1'（只有 board.json 带 wlan.defaults
-#      才启用，R10 没有），结果"刷完看不到任何 SSID"；
-#   2) htmode 取"该频段支持的最高协议"（filter(htmode_order, ...)[0]）。
-#      2.4G 是 Wi-Fi 6 芯片（RTL8192XBE），于是被推导成 HE20 —— 它的 2.4G
-#      HE 信标安卓解析不了，表现为"Windows 能搜到能连、手机永远看不到"。
-#      必须把 2G 直接钉成 HT20（纯 802.11n，信标里没有 HE 元素）。
+echo "---- [1b/7] 无线模板（SSID 分频段 / 首启启用） ----"
+# ---- 1b. 无线默认值：首启即启用 + 分频段 SSID ----
+# mac80211.uc 是 /etc/config/wireless 的生成器，必须改掉的行为：
+#   默认把 wifi-iface 写成 disabled='1'（只有 board.json 带 wlan.defaults
+#   才启用，R10 没有），结果"刷完看不到任何 SSID"。
+#
+# htmode / 信道**不做任何钉死**，完全交还驱动能力推导（与原厂固件行为一致，
+# 2026-11-16 对比原厂 rootfs 后的决定）：
+#   - 驱动宣称 HE（2G/5G 都宣称）-> 2G 推导为 HE20、5G 为 HE80（>80 封顶 80）
+#   - 驱动无 EHT 能力，htmode_order 里的 "EHT" 永远不会被选中
 #
 # 用 python 做整段精确替换，不用 sed：模板里含 "||" 与引号，sed 分隔符很难选；
 # 而且上游只要缩进差一个 tab，sed 就会"改不动也不报错"地静默失配。
@@ -101,33 +102,12 @@ for old, new in subs:
         sys.exit("ERROR: mac80211.uc 模板片段命中 %d 次（应为 1）：%r" % (n, old))
     src = src.replace(old, new)
 
-# 2) 2G 不参与"最高协议"推导，直接钉死 HT20。
-#    注意此处 band_name 还是大写形式（脚本稍后才 lc()），所以判断用 "2G"。
-old = (
-    "\t\tlet htmode = filter(htmode_order, (m) => band[lc(m)])[0];\n"
-    "\t\tif (htmode)\n"
-    "\t\t\thtmode += width;\n"
-    "\t\telse\n"
-    '\t\t\thtmode = "NOHT";'
-)
-new = (
-    "\t\tlet htmode;\n"
-    '\t\tif (band_name == "2G") {\n'
-    '\t\t\thtmode = "HT20";\n'
-    "\t\t} else {\n"
-    "\t\t\thtmode = filter(htmode_order, (m) => band[lc(m)])[0];\n"
-    '\t\t\thtmode = htmode ? htmode + width : "NOHT";\n'
-    "\t\t}"
-)
-if src.count(old) != 1:
-    sys.exit("ERROR: mac80211.uc 的 htmode 推导块未命中（上游模板变了？）")
-src = src.replace(old, new)
+# htmode 推导块保持上游原样：2G/5G 的协议由驱动宣称的能力决定
+# （详见上方注释；原厂固件就是这么工作的）。
 
 open(path, "w", encoding="utf-8", newline="").write(src)
 PY
   # 改完必须真的落地，否则两小时的编译白跑
-  grep -qF 'htmode = "HT20"' "$WIFI_UC" \
-    || fail "2.4G 未锁定 HT20（手机仍会搜不到 2.4G）"
   grep -qF "set \${si}.disabled='0'" "$WIFI_UC" \
     || fail "mac80211.uc 默认启用改写失败（上游模板变了？）"
   grep -qF "set \${si}.encryption='none'" "$WIFI_UC" \
@@ -136,20 +116,28 @@ PY
     || fail "2.4G SSID（$SSID_24G）未写入模板"
   grep -qF "$SSID_5G" "$WIFI_UC" \
     || fail "5G SSID（$SSID_5G）未写入模板"
-  echo "✅ 无线默认：5G=$SSID_5G / 2.4G=$SSID_24G，加密=none，2.4G 锁定 HT20，首启即启用"
+  # 交还驱动推导：模板里不允许再出现任何 htmode 钉死
+  if grep -qE 'htmode[[:space:]]*=[[:space:]]*"HT20"|band_name == "2G"' "$WIFI_UC"; then
+    fail "mac80211.uc 仍存在 htmode 钉死（应交还驱动推导）"
+  fi
+  echo "✅ 无线默认：5G=$SSID_5G / 2.4G=$SSID_24G，加密=none，首启即启用，htmode 交还驱动推导"
 else
   echo "::warning::未找到 $WIFI_UC，跳过无线默认值"
 fi
 
 echo "---- [1c/7] 2.4G 开机兜底脚本 ----"
-# ---- 1c. 2.4G 开机兜底：编译期改写之外再钉一次（双保险） ----
+# ---- 1c. 2.4G 开机兜底：首启阶段补齐 country / 启用 / 不隐藏 ----
 # 编译期改的是"生成器"，前提是刷机时选"不保留配置"；否则 /etc/config/wireless
-# 不会重新生成，等于没改。这里在首启阶段再钉一次，防止上游行为变化后静默回退。
+# 不会重新生成，等于没改。这里在首启阶段再兜一次。
+# 注意：协议（htmode）与信道同样交还驱动推导，兜底脚本不做钉死 —— 与原厂一致。
 WIFI24=files/etc/uci-defaults/97-pt1570-r10-wifi24
 test -f "$WIFI24" \
   || fail "缺少 $WIFI24（2.4G 只有编译期改写，重启后可能回退）"
-grep -qE "htmode='?HT20" "$WIFI24" \
-  || fail "$WIFI24 未锁定 HT20"
+grep -qE "country='?CN" "$WIFI24" \
+  || fail "$WIFI24 未设置 country=CN"
+if grep -qE "htmode='?[A-Z]+[0-9]+|channel='?[0-9]+" "$WIFI24"; then
+  fail "$WIFI24 不应钉死 htmode / 信道（应交还驱动推导）"
+fi
 echo "✅ 2.4G 开机兜底脚本就位：$WIFI24"
 
 echo "---- [2/7] apk 源声明 ----"

@@ -162,16 +162,18 @@ else
 fi
 
 # ---------------------------------------------------------------
-sec "5c. 无线默认值（2026-11-14 真机确定的出厂形态）"
+sec "5c. 无线默认值（2026-11-16 起对齐原厂：协议/信道交还驱动推导）"
 # 回归点（都真实发生过）：
 #   * 加密改回 psk2 / SSID 不分频段 -> 首启分不清哪个是 2.4G；
-#   * 2.4G htmode 回到"最高协议"推导 -> 变 HE20，安卓直接丢弃信标，
-#     表现是"电脑能搜能连、手机列表里永远没有"。
+#   * 生成器把 wifi-iface 写 disabled=1 -> 刷完看不到任何 SSID。
+# 2026-11-16 决定：htmode / 信道不再钉死（原厂 rootfs 的 mac80211.uc 与上游
+# 逐行相同，全靠驱动能力推导：2G=HE20、5G=HE80、信道 auto）。
+# 历史：2026-11-14 曾钉 2G HT20 修"手机搜不到 2.4G"，未经真机复验即回退。
 D2=diy-part2.sh
 if [ -f "$D2" ]; then
-  grep -qF 'htmode = "HT20"' "$D2" \
-    && ok "2.4G 在生成器层钉死 HT20（不用按协议推导）" \
-    || bad "diy-part2 未把 2.4G htmode 钉成 HT20（手机会搜不到 2.4G）"
+  ! grep -qF 'htmode = "HT20"' "$D2" \
+    && ok "生成器不钉 htmode（协议交还驱动推导，与原厂一致）" \
+    || bad "diy-part2 仍存在 HT20 钉死（应交还驱动推导）"
   grep -qF "band_name == '2g' ?" "$D2" \
     && ok "SSID 按频段区分（-2.4G / -5G）" \
     || bad "diy-part2 未按频段区分 SSID"
@@ -184,12 +186,14 @@ if [ -f "$D2" ]; then
   W24=files/etc/uci-defaults/97-pt1570-r10-wifi24
   [ -f "$W24" ] \
     && ok "2.4G 开机兜底脚本在位" || bad "缺 $W24"
-  grep -qE "htmode='?HT20" "$W24" 2>/dev/null \
-    && ok "兜底脚本同样锁定 HT20" || bad "兜底脚本未锁定 HT20"
+  grep -qE "country='?CN" "$W24" 2>/dev/null \
+    && ok "兜底脚本统一 country=CN（与原厂 92 号一致）" || bad "兜底脚本未设 country=CN"
+  ! grep -qE "htmode='?[A-Z]+[0-9]+|channel='?[0-9]+" "$W24" 2>/dev/null \
+    && ok "兜底脚本不钉 htmode / 信道" || bad "兜底脚本钉死了 htmode / 信道"
   # 只碰 2.4G：脚本里出现 radio0 的直写就说明会连 5G 一起改，属于越界
   ! grep -q 'radio0' "$W24" 2>/dev/null \
     && ok "兜底脚本不碰 5G（无 radio0 直写）" || bad "兜底脚本出现 radio0 直写"
-  # 断流缓解脚本（2026-11-16）：不踢空闲终端 + 5G 避 DFS + 5G 钉 HE80
+  # 断流缓解脚本（2026-11-16）：不踢空闲终端 + 统一 country=CN
   W98=files/etc/uci-defaults/98-pt1570-r10-wifi-stability
   [ -f "$W98" ] \
     && ok "断流缓解脚本在位" || bad "缺 $W98"
@@ -197,10 +201,8 @@ if [ -f "$D2" ]; then
     && grep -q 'disassoc_low_ack' "$W98" 2>/dev/null \
     && ok "断流缓解：不踢空闲终端（skip_inactivity_poll + disassoc_low_ack）" \
     || bad "断流缓解脚本缺 skip_inactivity_poll / disassoc_low_ack"
-  grep -q 'channel=149' "$W98" 2>/dev/null \
-    && ok "5G 固定非 DFS 信道 149" || bad "断流缓解脚本未固定 5G 信道"
-  grep -q 'htmode=HE80' "$W98" 2>/dev/null \
-    && ok "5G 钉 HE80（避开未经实测的 EHT）" || bad "断流缓解脚本未钉 5G htmode"
+  ! grep -qE "htmode='?[A-Z]+[0-9]+|channel='?[0-9]+" "$W98" 2>/dev/null \
+    && ok "断流缓解脚本不钉 htmode / 信道" || bad "断流缓解脚本钉死了 htmode / 信道"
   ! grep -q 'radio0' "$W98" 2>/dev/null \
     && ok "断流缓解脚本按 band/hwmode 判定（无 radio0 直写）" \
     || bad "断流缓解脚本出现 radio0 直写"
