@@ -28,6 +28,7 @@ for f in diy-part1.sh diy-part2.sh \
          files/etc/uci-defaults/95-pt1570-wan-default \
          files/etc/uci-defaults/96-pt1570-r10-leds \
          files/etc/uci-defaults/97-pt1570-r10-wifi24 \
+         files/etc/uci-defaults/98-pt1570-r10-wifi-stability \
          files/etc/uci-defaults/99-pt1570-fit \
          files/etc/init.d/tyfza1-factory; do
   [ -f "$f" ] && ok "$f" || bad "缺 $f"
@@ -188,6 +189,21 @@ if [ -f "$D2" ]; then
   # 只碰 2.4G：脚本里出现 radio0 的直写就说明会连 5G 一起改，属于越界
   ! grep -q 'radio0' "$W24" 2>/dev/null \
     && ok "兜底脚本不碰 5G（无 radio0 直写）" || bad "兜底脚本出现 radio0 直写"
+  # 断流缓解脚本（2026-11-16）：不踢空闲终端 + 5G 避 DFS + 5G 钉 HE80
+  W98=files/etc/uci-defaults/98-pt1570-r10-wifi-stability
+  [ -f "$W98" ] \
+    && ok "断流缓解脚本在位" || bad "缺 $W98"
+  grep -q 'skip_inactivity_poll' "$W98" 2>/dev/null \
+    && grep -q 'disassoc_low_ack' "$W98" 2>/dev/null \
+    && ok "断流缓解：不踢空闲终端（skip_inactivity_poll + disassoc_low_ack）" \
+    || bad "断流缓解脚本缺 skip_inactivity_poll / disassoc_low_ack"
+  grep -q 'channel=149' "$W98" 2>/dev/null \
+    && ok "5G 固定非 DFS 信道 149" || bad "断流缓解脚本未固定 5G 信道"
+  grep -q 'htmode=HE80' "$W98" 2>/dev/null \
+    && ok "5G 钉 HE80（避开未经实测的 EHT）" || bad "断流缓解脚本未钉 5G htmode"
+  ! grep -q 'radio0' "$W98" 2>/dev/null \
+    && ok "断流缓解脚本按 band/hwmode 判定（无 radio0 直写）" \
+    || bad "断流缓解脚本出现 radio0 直写"
 fi
 
 # ---------------------------------------------------------------

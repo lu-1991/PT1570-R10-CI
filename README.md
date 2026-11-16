@@ -319,6 +319,17 @@ CI 里没有也能正常编译（workflow 会做 CRLF 归一化）。
 2.4G 表本身就是全 0（原厂对 2.4G 不做温补），所以这张表是"对齐原厂行为"，
 不是 2.4G 信号问题的修复项。preflight 第 3 节会校验路径、尺寸与串位。
 
+**Q：Wi-Fi 时不时断流 / 终端被踢下线？**
+首启脚本 `98-pt1570-r10-wifi-stability` 做了三件事：
+1. 所有 VAP `skip_inactivity_poll=1` + `disassoc_low_ack=0` —— 不再主动轮询和
+   踢掉省电中的终端（最常见的"连着连着就掉"来源，终端自己会决定重连）；
+2. 5G 固定信道 **149**（CN 合法、非 DFS）—— 避免雷达误报触发信道切换/CAC
+   重新等待导致"所有终端同时掉一下"；
+3. 5G 钉 **HE80** —— 避开自研 rtl_ax_ap 驱动下未经实测的 EHT 能力。
+2.4G 的信道/htmode 仍由 97 号脚本负责，本脚本不重复。注意：uci-defaults 只在
+首启生效，刷机若"保留配置"需要手动执行或恢复出厂。若做完仍断流，抓
+`logread | grep -E 'hostapd|wifi-stability'` 和 `dmesg` 里 rtl_ax_ap 的报错再定位。
+
 **Q：刷完没有无线信号？**
 按顺序查：`dmesg | grep -i -E 'rtl_ax|EINVAL'` → `ls -l /lib/firmware/realtek/tyfza1/`
 → `ls -l /etc/init.d/tyfza1-factory`（**必须有 `x`**）→ `cat /lib/firmware/realtek/tyfza1/rtl8852ce/flash-calibration.bin | wc -c`（**必须是 284**）。
