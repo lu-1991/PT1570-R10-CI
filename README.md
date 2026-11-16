@@ -345,6 +345,18 @@ sysupgrade 的 ramfs。**验证方法**：升级完成后看 LuCI 概览「型�
 `Youhua PT1570-R10 (RTL9617C, 4xGE, UBI)`；仍显示 `... FIT ABI` 就是没刷进去
 （这个标记来自朋友 2026-11-16 的实证思路，也用于区分朋友版固件）。
 
+**Q：网页升级直接报 `this image is for youhua,pt1500-h10, not youhua,pt1570-r10`？**
+镜像本身没问题，是**升级钩子被 H10 的脚本抢走了**。`/sbin/sysupgrade` 启动时会
+`source` 掉 `/lib/upgrade/*.sh` 全部脚本，其中 `pt1500-fip.sh`（H10 专用，按字母序
+排在 `platform.sh` 之后）无条件定义 `platform_check_image` / `platform_do_upgrade` /
+`platform_copy_config`，把本机型 `platform.sh` 里的版本整个覆盖掉：前者只认
+`youhua,pt1500-h10`，所以第一句就判死；后者写 `fip` 卷，而 R10 上没有这个卷。
+2026-11-16 起 `apply-board.sh` 会把这三个定义包进 `case "$(board_name)"`，仅在
+H10 机型生效。**注意**：这个 bug 在**运行中的旧固件**里也存在，所以刷入这一版之前
+若报同样错误，可先在旧固件里把 `/lib/upgrade/pt1500-fip.sh` 的函数体用同样的
+`case` 包起来，或直接用 U-Boot recovery 刷写。
+（排查命令：`sh -x /sbin/sysupgrade -T /tmp/firmware.bin` 能看到加载顺序）
+
 **Q：刷完没有无线信号？**
 按顺序查：`dmesg | grep -i -E 'rtl_ax|EINVAL'` → `ls -l /lib/firmware/realtek/tyfza1/`
 → `ls -l /etc/init.d/tyfza1-factory`（**必须有 `x`**）→ `cat /lib/firmware/realtek/tyfza1/rtl8852ce/flash-calibration.bin | wc -c`（**必须是 284**）。

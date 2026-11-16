@@ -347,6 +347,13 @@ grep -q 'fit_do_upgrade "$1"' scripts/apply-board.sh \
 grep -q '4xGE, UBI' board/dts/rtl9617c-pt1570-r10.dts \
   && ok "概览标记 UBI（区别于旧固件 FIT ABI，看型号即知升级是否生效）" \
   || bad "DTS model 缺 UBI 概览标记"
+# 2026-11-16 真机实证：sysupgrade 会 source /lib/upgrade/*.sh 全部脚本，
+# pt1500-fip.sh 字母序在 platform.sh 之后，会把 platform_check_image /
+# platform_do_upgrade 覆盖成 H10 的 fip 逻辑 -> 网页升级第一句就报
+# "this image is for youhua,pt1500-h10"。必须按机型 case 守护。
+grep -q 'PT1570_R10_UPGRADE_HOOK_GUARD' scripts/apply-board.sh \
+  && ok "apply-board.sh 注入 pt1500-fip.sh 机型守护（挡 H10 钩子覆盖）" \
+  || bad "apply-board.sh 缺 pt1500-fip.sh 机型守护注入"
 
 # ---------------------------------------------------------------
 sec "8. 源码树注入深度校验（可选，WRT=源码树时执行）"

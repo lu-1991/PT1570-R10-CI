@@ -138,6 +138,47 @@ print('platform.sh upgraded to fit_do_upgrade flow')
 PY
 fi
 
+# ---- 3c. 挡住 H10 的升级钩子覆盖（网页升级报 "this image is for youhua,pt1500-h10"）----
+# 2026-11-16 真机实证：/sbin/sysupgrade 启动时 `ls /lib/upgrade/*.sh` 逐个 source。
+# pt1500-fip.sh 字母序在 platform.sh 之后，它无条件定义的
+#   platform_check_image / platform_do_upgrade / platform_copy_config
+# 会把 R10 的钩子整个覆盖掉：
+#   - check：只允许 youhua,pt1500-h10，R10 上传固件第一句就被判死
+#            （"this image is for youhua,pt1500-h10, not youhua,pt1570-r10"）
+#   - do：写 fip 卷，而 R10 上没有这个卷 → 即便 -F 强刷也写不进去
+# 所以 3b 修的 fit_do_upgrade 根本没机会执行。把这三个定义用机型 case 包起来，
+# 让 H10 机型仍然走 fip 路径、其它机型回落到 platform.sh。
+FIP_SH="$WRT/target/linux/rtl9617c/base-files/lib/upgrade/pt1500-fip.sh"
+if [ ! -f "$FIP_SH" ]; then
+  echo "pt1500-fip.sh 不存在，跳过（该树没有 H10 升级路径）"
+elif grep -q 'PT1570_R10_UPGRADE_HOOK_GUARD' "$FIP_SH"; then
+  echo "pt1500-fip.sh already guarded, skip"
+else
+  python3 - "$FIP_SH" <<'PY'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+lines = p.read_text(encoding='utf-8').splitlines()
+try:
+    start = next(i for i, l in enumerate(lines)
+                 if l.startswith('platform_check_image()'))
+except StopIteration:
+    raise SystemExit('ERROR: pt1500-fip.sh 里找不到 platform_check_image()，上游结构变了？')
+head, body = lines[:start], lines[start:]
+guard = [
+    '',
+    '# PT1570_R10_UPGRADE_HOOK_GUARD（PT1570-R10-CI 注入，勿手改）',
+    '# sysupgrade 会 source /lib/upgrade/*.sh 全部脚本，本文件字母序排在',
+    '# platform.sh 之后；不守护就会把 R10 的 platform_check_image /',
+    '# platform_do_upgrade 覆盖成 H10 的 fip 路径。仅在 H10 机型上生效。',
+    'case "$(board_name 2>/dev/null)" in',
+    'youhua,pt1500-h10|youhua,pt1500-h10-2p5g)',
+]
+out = head + guard + body + [';;', 'esac']
+p.write_text('\n'.join(out) + '\n', encoding='utf-8')
+print('pt1500-fip.sh 已加机型守护（%d 行函数体）' % len(body))
+PY
+fi
+
 # ---- 结果校验 ----
 grep -q "SUPPORTED_DEVICES += ${BOARD_NAME}" "$IMG_MK" \
   || { echo "ERROR: SUPPORTED_DEVICES missing" >&2; exit 1; }
@@ -148,6 +189,14 @@ grep -q 'fit_do_upgrade "$1"' "$PLATFORM" \
   || { echo "ERROR: platform.sh 未启用 fit_do_upgrade（系统内升级会静默失败）" >&2; exit 1; }
 grep -q "fw_setenv fitblk" "$PLATFORM" \
   || { echo "ERROR: platform.sh RAMFS_COPY_BIN 缺 fitblk" >&2; exit 1; }
+# H10 的 fip 钩子必须被机型 case 守护，否则会盖掉上面这套（网页升级必失败）
+if [ -f "$FIP_SH" ]; then
+  grep -q 'PT1570_R10_UPGRADE_HOOK_GUARD' "$FIP_SH" \
+    || { echo "ERROR: pt1500-fip.sh 未加机型守护（会覆盖 platform_check_image）" >&2; exit 1; }
+  sh -n "$FIP_SH" \
+    || { echo "ERROR: pt1500-fip.sh 加了守护后语法不通过" >&2; exit 1; }
+  echo "H10 fip 钩子已按机型守护 OK"
+fi
 grep -q 'rootdisk' "$WRT/target/linux/rtl9617c/dts/rtl9617c-tyfza1.dtsi" \
   || { echo "ERROR: 上游 dtsi 没有 chosen.rootdisk，FIT ABI 不成立" >&2; exit 1; }
 grep -q 'volname = "fit"' "$WRT/target/linux/rtl9617c/dts/rtl9617c-tyfza1.dtsi" \
