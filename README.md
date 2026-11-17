@@ -133,10 +133,12 @@ checkout → CRLF 归一化 → 释放磁盘/装依赖 → 克隆上游(锁 comm
   `error:` / `No space left` / `Killed` 等关键行抓成 GitHub 注解，并上传 `build.log`。
 - **只有一条 workflow**：不再有 matrix、不再现场编译 PE 固件（那一步产出的正是已知坏版本，
   会被 overlay 直接覆盖）。
-- **主题与常用服务**：LuCI 主题用 `luci-theme-vantage`，由 `diy-part2.sh` 第 `[1d/7]` 步
-  从上游仓库拉源码编译（**锁定 commit**：`v1.0.20` = `0f8d16f`，见脚本内 `VANTAGE_SHA`，
-  升级主题只改这一行）。
-  主题不再以静态文件注入 `files/`。argon 系列在 config 里显式 `is not set`，防手滑回归。
+- **主题与常用服务**：两套主题并存。
+  `luci-theme-vantage` 由 `diy-part2.sh` 第 `[1d/7]` 步从上游仓库拉源码编译
+  （**锁定 commit**：`v1.0.20` = `0f8d16f`，见脚本内 `VANTAGE_SHA`，升级主题只改这一行），
+  不再以静态文件注入 `files/`；`luci-theme-argon` + `luci-app-argon-config` 来自
+  kenzok8 feed（`feeds.conf.default` 已钉 commit），**默认主题仍是 Argon**
+  （pon 包的 `97-rtl9617c-argon-default` 设定），Vantage 在「系统 → 语言和界面」里切换。
   局域网服务（samba4 / vsftpd / upnp / wol）直接写进
   `configs/youhua_pt1570-r10.config` 的 `CONFIG_PACKAGE_*`，由 `diy-part2` 第 6 节断言防丢包。
 

@@ -115,6 +115,9 @@ grep -q 'PROFILE="\${TARGET_MODEL' diy-part2.sh \
 # 主题与新增服务（2026-11-17）：Vantage 走拉库编译（diy-part2 [1d]），argon 关死
 grep -q '^CONFIG_PACKAGE_luci-theme-vantage=y$' "$CFG" \
   && ok "luci-theme-vantage=y（拉库编译）" || bad "$CFG 缺 luci-theme-vantage=y"
+grep -q '^CONFIG_PACKAGE_luci-theme-argon=y$' "$CFG" \
+  && grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' "$CFG" \
+  && ok "argon 主题 + 设置页已开" || bad "$CFG 缺 argon 主题/设置页"
 grep -q 'VANTAGE_SHA=' diy-part2.sh \
   && grep -q 'anothaDev/luci-theme-vantage' diy-part2.sh \
   && grep -q 'cp -a .vantage-src/luci-theme-vantage' diy-part2.sh \

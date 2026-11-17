@@ -253,7 +253,8 @@ make defconfig
 for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
            luci-app-samba4 samba4-server vsftpd \
-           luci-app-upnp miniupnpd luci-app-wol; do
+           luci-app-upnp miniupnpd-nftables luci-app-wol \
+           luci-theme-vantage; do
   if ! grep -q "^CONFIG_PACKAGE_${sym}=y$" .config; then
     sed -i "/^# CONFIG_PACKAGE_${sym} is not set$/d; /^CONFIG_PACKAGE_${sym}=/d" .config
     echo "CONFIG_PACKAGE_${sym}=y" >> .config
@@ -275,6 +276,9 @@ n_dev=$(grep -cE '^CONFIG_TARGET_rtl9617c_generic_DEVICE_[A-Za-z0-9_]+=y$' .conf
 echo "---- [6/7] 硬断言 ----"
 # ---- 6. 硬断言（任何一条失败都说明配置被破坏，提前终止而不是编两小时后炸）----
 echo "===== hard assertions ====="
+# 虚拟包防御：miniupnpd 只有 PROVIDES，写裸名必被 defconfig 丢弃
+! grep -q '^CONFIG_PACKAGE_miniupnpd=y$' .config \
+  || fail "CONFIG_PACKAGE_miniupnpd=y 是虚拟包，必须写 miniupnpd-nftables"
 grep -q "^CONFIG_TARGET_rtl9617c_generic_DEVICE_${PROFILE}=y$" .config \
   || fail "profile $PROFILE 未启用"
 # defconfig 会把没有依赖的选项清掉，这里确认"加速"与"镜像范围"没被悄悄改回去
@@ -301,19 +305,18 @@ for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
            luci-app-samba4 samba4-server vsftpd \
            luci-app-upnp miniupnpd-nftables luci-app-wol \
-           luci-theme-vantage \
+           luci-theme-vantage luci-theme-argon luci-app-argon-config \
+           luci-i18n-argon-config-zh-cn \
            kmod-fs-ext4 kmod-fs-vfat kmod-nls-utf8 kmod-usb-storage \
            kmod-usb-storage-uas wpad-mbedtls; do
   grep -q "^CONFIG_PACKAGE_${sym}=y$" .config \
     || fail "$sym 在两次 defconfig 后被丢弃"
   echo "  OK   $sym"
 done
-# argon（kenzok8 feed 提供）不许混进固件：主题统一用 Vantage（diy-part2 拉库编译）
-for bad in luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn; do
-  grep -qE "^CONFIG_PACKAGE_${bad}=(y|m)$" .config \
-    && fail "argon 系列包 ${bad} 被选中（主题已统一为 Vantage）"
-done
-echo "  OK   无 argon 残留（主题 = Vantage）"
+# 两套主题并存（2026-11-17 用户确认）：argon 由设备 profile 的 DEVICE_PACKAGES
+# 与 pon 包依赖强选，配置里也显式打开；默认主题由 pon 包的
+# 97-rtl9617c-argon-default 设为 Argon，Vantage 可在「系统→语言和界面」切换。
+echo "  OK   argon 主题 + 设置页已内置（默认 Argon，Vantage 可切换）"
 
 # files/ 静态注入已废弃：Vantage 一律走 package 源码构建，残留文件说明有旧缓存
 find files -iname '*vantage*' -print -quit 2>/dev/null | grep -q . \
