@@ -146,6 +146,34 @@ if grep -qE "htmode='?[A-Z]+[0-9]+|channel='?[0-9]+" "$WIFI24"; then
 fi
 echo "✅ 2.4G 开机兜底脚本就位：$WIFI24"
 
+echo "---- [1d/7] Vantage 主题（拉库编译，锁定 v1.0.20） ----"
+# ---- 1d. luci-theme-vantage：从上游源码构建 ----
+# 上游是多包仓库（根目录下 luci-theme-vantage/ 与 luci-app-vantage/），只取主题子包。
+# 锁定 tag v1.0.20 解引用后的 commit；升级主题只改这个 SHA。
+VANTAGE_REPO="${VANTAGE_REPO:-https://github.com/anothaDev/luci-theme-vantage}"
+VANTAGE_SHA="${VANTAGE_SHA:-0f8d16f2ce25132e6a074575af16468524d2d5dd}"
+VPKG=package/luci-theme-vantage
+if [ ! -f "$VPKG/Makefile" ]; then
+  rm -rf "$VPKG" .vantage-src
+  for i in 1 2 3; do
+    git clone -q "$VANTAGE_REPO" .vantage-src && break
+    echo "  clone 第 $i 次失败，重试…"; rm -rf .vantage-src; sleep 5
+    [ "$i" = 3 ] && fail "Vantage 主题仓库克隆失败（$VANTAGE_REPO）"
+  done
+  git -C .vantage-src checkout -q "$VANTAGE_SHA" \
+    || fail "Vantage checkout $VANTAGE_SHA 失败（上游仓库被改写？）"
+  [ "$(git -C .vantage-src rev-parse HEAD)" = "$VANTAGE_SHA" ] \
+    || fail "Vantage 源码不在锁定的 commit $VANTAGE_SHA"
+  cp -a .vantage-src/luci-theme-vantage "$VPKG" 2>/dev/null \
+    || { mkdir -p package && cp -a .vantage-src/luci-theme-vantage "$VPKG"; }
+  rm -rf .vantage-src
+fi
+grep -q '^PKG_NAME:=luci-theme-vantage$' "$VPKG/Makefile" \
+  || fail "$VPKG/Makefile 不是 luci-theme-vantage"
+grep -q '^PKG_VERSION:=1\.0\.20$' "$VPKG/Makefile" \
+  || fail "$VPKG/Makefile 版本不是 1.0.20（checkout 未生效？）"
+echo "✅ Vantage 主题源码就位 @ $VANTAGE_SHA (1.0.20)"
+
 echo "---- [2/7] apk 源声明 ----"
 # ---- 2. apk 源声明 ----
 mkdir -p files/etc/apk/repositories.d
@@ -223,7 +251,9 @@ sed -i 's|^CONFIG_PACKAGE_uboot-envtools=y|# CONFIG_PACKAGE_uboot-envtools is no
 
 make defconfig
 for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
-           luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn; do
+           luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
+           luci-app-samba4 samba4-server vsftpd \
+           luci-app-upnp miniupnpd luci-app-wol; do
   if ! grep -q "^CONFIG_PACKAGE_${sym}=y$" .config; then
     sed -i "/^# CONFIG_PACKAGE_${sym} is not set$/d; /^CONFIG_PACKAGE_${sym}=/d" .config
     echo "CONFIG_PACKAGE_${sym}=y" >> .config
@@ -269,12 +299,26 @@ else
 fi
 for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
+           luci-app-samba4 samba4-server vsftpd \
+           luci-app-upnp miniupnpd luci-app-wol \
+           luci-theme-vantage \
            kmod-fs-ext4 kmod-fs-vfat kmod-nls-utf8 kmod-usb-storage \
            kmod-usb-storage-uas wpad-mbedtls; do
   grep -q "^CONFIG_PACKAGE_${sym}=y$" .config \
     || fail "$sym 在两次 defconfig 后被丢弃"
   echo "  OK   $sym"
 done
+# argon（kenzok8 feed 提供）不许混进固件：主题统一用 Vantage（diy-part2 拉库编译）
+for bad in luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn; do
+  grep -qE "^CONFIG_PACKAGE_${bad}=(y|m)$" .config \
+    && fail "argon 系列包 ${bad} 被选中（主题已统一为 Vantage）"
+done
+echo "  OK   无 argon 残留（主题 = Vantage）"
+
+# files/ 静态注入已废弃：Vantage 一律走 package 源码构建，残留文件说明有旧缓存
+find files -iname '*vantage*' -print -quit 2>/dev/null | grep -q . \
+  && fail "files/ 里残留 Vantage 注入文件（应删除，主题已改为拉库编译）"
+echo "  OK   files/ 无 Vantage 残留"
 grep -q '^# CONFIG_PACKAGE_uboot-envtools is not set$' .config \
   || fail "uboot-envtools 必须关闭"
 echo "  OK   uboot-envtools disabled"

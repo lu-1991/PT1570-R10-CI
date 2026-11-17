@@ -112,6 +112,21 @@ grep -q 'PROFILE="\${TARGET_MODEL' diy-part2.sh \
   && grep -q 'ALL_DEVICES=' diy-part2.sh \
   && ok "diy-part2 机型选择逻辑在位" || bad "diy-part2 缺机型选择逻辑"
 
+# 主题与新增服务（2026-11-17）：Vantage 走拉库编译（diy-part2 [1d]），argon 关死
+grep -q '^CONFIG_PACKAGE_luci-theme-vantage=y$' "$CFG" \
+  && ok "luci-theme-vantage=y（拉库编译）" || bad "$CFG 缺 luci-theme-vantage=y"
+grep -q 'VANTAGE_SHA=' diy-part2.sh \
+  && grep -q 'anothaDev/luci-theme-vantage' diy-part2.sh \
+  && grep -q 'cp -a .vantage-src/luci-theme-vantage' diy-part2.sh \
+  && ok "diy-part2 Vantage 拉库步骤在位" || bad "diy-part2 缺 Vantage 拉库步骤"
+grep -q '^CONFIG_PACKAGE_luci-app-samba4=y$' "$CFG" \
+  && grep -q '^CONFIG_PACKAGE_vsftpd=y$' "$CFG" \
+  && grep -q '^CONFIG_PACKAGE_luci-app-upnp=y$' "$CFG" \
+  && grep -q '^CONFIG_PACKAGE_luci-app-wol=y$' "$CFG" \
+  && ok "局域网服务四件套在位" || bad "$CFG 缺局域网服务四件套"
+! find files -iname '*vantage*' -print -quit 2>/dev/null | grep -q . \
+  && ok "files/ 无 Vantage 静态残留" || bad "files/ 残留 Vantage 注入文件（应删除）"
+
 # ---------------------------------------------------------------
 sec "5. workflow 结构与防回归"
 if [ -z "$WF" ]; then
