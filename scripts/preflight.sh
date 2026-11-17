@@ -122,8 +122,12 @@ grep -q 'VANTAGE_SHA=' diy-part2.sh \
 grep -q '^CONFIG_PACKAGE_luci-app-samba4=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_vsftpd=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_luci-app-upnp=y$' "$CFG" \
+  && grep -q '^CONFIG_PACKAGE_miniupnpd-nftables=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_luci-app-wol=y$' "$CFG" \
   && ok "局域网服务四件套在位" || bad "$CFG 缺局域网服务四件套"
+# miniupnpd 是虚拟包（PROVIDES），写裸名会被 defconfig 静默丢掉（run 已实测报错）
+! grep -q '^CONFIG_PACKAGE_miniupnpd=y$' "$CFG" \
+  && ok "未写裸虚拟包 miniupnpd" || bad "CONFIG_PACKAGE_miniupnpd=y 是虚拟包，必选 miniupnpd-nftables"
 ! find files -iname '*vantage*' -print -quit 2>/dev/null | grep -q . \
   && ok "files/ 无 Vantage 静态残留" || bad "files/ 残留 Vantage 注入文件（应删除）"
 

@@ -300,7 +300,7 @@ fi
 for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
            luci-app-samba4 samba4-server vsftpd \
-           luci-app-upnp miniupnpd luci-app-wol \
+           luci-app-upnp miniupnpd-nftables luci-app-wol \
            luci-theme-vantage \
            kmod-fs-ext4 kmod-fs-vfat kmod-nls-utf8 kmod-usb-storage \
            kmod-usb-storage-uas wpad-mbedtls; do
