@@ -146,33 +146,37 @@ if grep -qE "htmode='?[A-Z]+[0-9]+|channel='?[0-9]+" "$WIFI24"; then
 fi
 echo "✅ 2.4G 开机兜底脚本就位：$WIFI24"
 
-echo "---- [1d/7] Vantage 主题（拉库编译，锁定 v1.0.20） ----"
-# ---- 1d. luci-theme-vantage：从上游源码构建 ----
-# 上游是多包仓库（根目录下 luci-theme-vantage/ 与 luci-app-vantage/），只取主题子包。
-# 锁定 tag v1.0.20 解引用后的 commit；升级主题只改这个 SHA。
-VANTAGE_REPO="${VANTAGE_REPO:-https://github.com/anothaDev/luci-theme-vantage}"
-VANTAGE_SHA="${VANTAGE_SHA:-0f8d16f2ce25132e6a074575af16468524d2d5dd}"
-VPKG=package/luci-theme-vantage
-if [ ! -f "$VPKG/Makefile" ]; then
-  rm -rf "$VPKG" .vantage-src
+echo "---- [1d/7] Fluent 主题（拉库编译，锁定 v1.0.9） ----"
+# ---- 1d. luci-theme-fluent：从上游源码构建 ----
+# 锁定 tag v1.0.9 解引用后的 commit：该 commit 的 package/ 下只有主题一个包，
+# 依赖仅 +luci-base（main 分支后加了 +flock，本环境无 flock 包会导致 defconfig
+# 丢包，故不追 main）。上游打 v1.0.9 标签时 Makefile 忘了 bump，仍是 1.0.8，
+# 所以版本断言写 1.0.8 是对的；升级主题只改 FLUENT_SHA。
+FLUENT_REPO="${FLUENT_REPO:-https://github.com/LazuliKao/luci-theme-fluent}"
+FLUENT_SHA="${FLUENT_SHA:-bd52cc181baa54b194f4cd3e34810aa3d8e37f50}"
+FPKG=package/luci-theme-fluent
+if [ ! -f "$FPKG/Makefile" ]; then
+  rm -rf "$FPKG" .fluent-src
   for i in 1 2 3; do
-    git clone -q "$VANTAGE_REPO" .vantage-src && break
-    echo "  clone 第 $i 次失败，重试…"; rm -rf .vantage-src; sleep 5
-    [ "$i" = 3 ] && fail "Vantage 主题仓库克隆失败（$VANTAGE_REPO）"
+    git clone -q "$FLUENT_REPO" .fluent-src && break
+    echo "  clone 第 $i 次失败，重试…"; rm -rf .fluent-src; sleep 5
+    [ "$i" = 3 ] && fail "Fluent 主题仓库克隆失败（$FLUENT_REPO）"
   done
-  git -C .vantage-src checkout -q "$VANTAGE_SHA" \
-    || fail "Vantage checkout $VANTAGE_SHA 失败（上游仓库被改写？）"
-  [ "$(git -C .vantage-src rev-parse HEAD)" = "$VANTAGE_SHA" ] \
-    || fail "Vantage 源码不在锁定的 commit $VANTAGE_SHA"
-  cp -a .vantage-src/luci-theme-vantage "$VPKG" 2>/dev/null \
-    || { mkdir -p package && cp -a .vantage-src/luci-theme-vantage "$VPKG"; }
-  rm -rf .vantage-src
+  git -C .fluent-src checkout -q "$FLUENT_SHA" \
+    || fail "Fluent checkout $FLUENT_SHA 失败（上游仓库被改写？）"
+  [ "$(git -C .fluent-src rev-parse HEAD)" = "$FLUENT_SHA" ] \
+    || fail "Fluent 源码不在锁定的 commit $FLUENT_SHA"
+  cp -a .fluent-src/package/luci-theme-fluent "$FPKG" 2>/dev/null \
+    || { mkdir -p package && cp -a .fluent-src/package/luci-theme-fluent "$FPKG"; }
+  rm -rf .fluent-src
 fi
-grep -q '^PKG_NAME:=luci-theme-vantage$' "$VPKG/Makefile" \
-  || fail "$VPKG/Makefile 不是 luci-theme-vantage"
-grep -q '^PKG_VERSION:=1\.0\.20$' "$VPKG/Makefile" \
-  || fail "$VPKG/Makefile 版本不是 1.0.20（checkout 未生效？）"
-echo "✅ Vantage 主题源码就位 @ $VANTAGE_SHA (1.0.20)"
+grep -q '^PKG_NAME:=luci-theme-fluent$' "$FPKG/Makefile" \
+  || fail "$FPKG/Makefile 不是 luci-theme-fluent"
+grep -q '^PKG_VERSION:=1\.0\.8$' "$FPKG/Makefile" \
+  || fail "$FPKG/Makefile 版本不是 1.0.8（v1.0.9 tag commit 应为 1.0.8）"
+grep -q '^LUCI_DEPENDS:=+luci-base$' "$FPKG/Makefile" \
+  || fail "$FPKG/Makefile 依赖变了（不应含 +flock，本环境无此包）"
+echo "✅ Fluent 主题源码就位 @ $FLUENT_SHA (v1.0.9)"
 
 echo "---- [2/7] apk 源声明 ----"
 # ---- 2. apk 源声明 ----
@@ -254,7 +258,7 @@ for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
            luci-app-samba4 samba4-server vsftpd \
            luci-app-upnp miniupnpd-nftables luci-app-wol \
-           luci-theme-vantage; do
+           luci-theme-fluent luci-i18n-fluent-zh-cn; do
   if ! grep -q "^CONFIG_PACKAGE_${sym}=y$" .config; then
     sed -i "/^# CONFIG_PACKAGE_${sym} is not set$/d; /^CONFIG_PACKAGE_${sym}=/d" .config
     echo "CONFIG_PACKAGE_${sym}=y" >> .config
@@ -305,7 +309,8 @@ for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn \
            luci-app-samba4 samba4-server vsftpd \
            luci-app-upnp miniupnpd-nftables luci-app-wol \
-           luci-theme-vantage luci-theme-argon luci-app-argon-config \
+           luci-theme-fluent luci-i18n-fluent-zh-cn \
+           luci-theme-argon luci-app-argon-config \
            luci-i18n-argon-config-zh-cn \
            kmod-fs-ext4 kmod-fs-vfat kmod-nls-utf8 kmod-usb-storage \
            kmod-usb-storage-uas wpad-mbedtls; do
@@ -313,15 +318,15 @@ for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
     || fail "$sym 在两次 defconfig 后被丢弃"
   echo "  OK   $sym"
 done
-# 两套主题并存（2026-11-17 用户确认）：argon 由设备 profile 的 DEVICE_PACKAGES
+# 两套主题并存（2026-11-18 用户确认）：argon 由设备 profile 的 DEVICE_PACKAGES
 # 与 pon 包依赖强选，配置里也显式打开；默认主题由 pon 包的
-# 97-rtl9617c-argon-default 设为 Argon，Vantage 可在「系统→语言和界面」切换。
-echo "  OK   argon 主题 + 设置页已内置（默认 Argon，Vantage 可切换）"
+# 97-rtl9617c-argon-default 设为 Argon，Fluent 可在「系统→语言和界面」切换。
+echo "  OK   argon 主题 + 设置页已内置（默认 Argon，Fluent 可切换）"
 
-# files/ 静态注入已废弃：Vantage 一律走 package 源码构建，残留文件说明有旧缓存
-find files -iname '*vantage*' -print -quit 2>/dev/null | grep -q . \
-  && fail "files/ 里残留 Vantage 注入文件（应删除，主题已改为拉库编译）"
-echo "  OK   files/ 无 Vantage 残留"
+# files/ 静态注入已废弃：主题一律走 package 源码构建，残留文件说明有旧缓存
+find files -iname '*vantage*' -o -iname '*fluent*' 2>/dev/null | grep -q . \
+  && fail "files/ 里残留 Vantage/Fluent 注入文件（应删除，主题已改为拉库编译）"
+echo "  OK   files/ 无 Vantage/Fluent 残留"
 grep -q '^# CONFIG_PACKAGE_uboot-envtools is not set$' .config \
   || fail "uboot-envtools 必须关闭"
 echo "  OK   uboot-envtools disabled"

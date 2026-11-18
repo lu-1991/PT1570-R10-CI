@@ -134,11 +134,15 @@ checkout → CRLF 归一化 → 释放磁盘/装依赖 → 克隆上游(锁 comm
 - **只有一条 workflow**：不再有 matrix、不再现场编译 PE 固件（那一步产出的正是已知坏版本，
   会被 overlay 直接覆盖）。
 - **主题与常用服务**：两套主题并存。
-  `luci-theme-vantage` 由 `diy-part2.sh` 第 `[1d/7]` 步从上游仓库拉源码编译
-  （**锁定 commit**：`v1.0.20` = `0f8d16f`，见脚本内 `VANTAGE_SHA`，升级主题只改这一行），
-  不再以静态文件注入 `files/`；`luci-theme-argon` + `luci-app-argon-config` 来自
+  `luci-theme-fluent` 由 `diy-part2.sh` 第 `[1d/7]` 步从上游仓库
+  （LazuliKao/luci-theme-fluent）拉源码编译（**锁定 commit**：tag `v1.0.9` = `bd52cc1`，
+  见脚本内 `FLUENT_SHA`，升级主题只改这一行；该 commit 的 `PKG_VERSION` 是 `1.0.8`，
+  上游打标时未 bump），配套中文语言包 `luci-i18n-fluent-zh-cn`，
+  主题自带设置页「系统 → Fluent Theme」（`/etc/config/fluent`）；
+  不追 main 分支：main 依赖 `+flock`，本环境没有 `flock` 包，会被 defconfig 丢包。
+  主题不以静态文件注入 `files/`；`luci-theme-argon` + `luci-app-argon-config` 来自
   kenzok8 feed（`feeds.conf.default` 已钉 commit），**默认主题仍是 Argon**
-  （pon 包的 `97-rtl9617c-argon-default` 设定），Vantage 在「系统 → 语言和界面」里切换。
+  （pon 包的 `97-rtl9617c-argon-default` 设定），Fluent 在「系统 → 语言和界面」里切换。
   局域网服务（samba4 / vsftpd / upnp / wol）直接写进
   `configs/youhua_pt1570-r10.config` 的 `CONFIG_PACKAGE_*`，由 `diy-part2` 第 6 节断言防丢包。
 

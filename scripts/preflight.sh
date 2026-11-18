@@ -112,16 +112,19 @@ grep -q 'PROFILE="\${TARGET_MODEL' diy-part2.sh \
   && grep -q 'ALL_DEVICES=' diy-part2.sh \
   && ok "diy-part2 机型选择逻辑在位" || bad "diy-part2 缺机型选择逻辑"
 
-# 主题与新增服务（2026-11-17）：Vantage 走拉库编译（diy-part2 [1d]），argon 关死
-grep -q '^CONFIG_PACKAGE_luci-theme-vantage=y$' "$CFG" \
-  && ok "luci-theme-vantage=y（拉库编译）" || bad "$CFG 缺 luci-theme-vantage=y"
+# 主题与新增服务（2026-11-18）：Fluent 走拉库编译（diy-part2 [1d]），argon 并存
+grep -q '^CONFIG_PACKAGE_luci-theme-fluent=y$' "$CFG" \
+  && grep -q '^CONFIG_PACKAGE_luci-i18n-fluent-zh-cn=y$' "$CFG" \
+  && ok "luci-theme-fluent + zh-cn 语言包=y（拉库编译）" || bad "$CFG 缺 luci-theme-fluent/语言包"
+! grep -q 'luci-theme-vantage=y' "$CFG" \
+  && ok "Vantage 已移除" || bad "$CFG 仍有 luci-theme-vantage=y（已换 Fluent）"
 grep -q '^CONFIG_PACKAGE_luci-theme-argon=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' "$CFG" \
   && ok "argon 主题 + 设置页已开" || bad "$CFG 缺 argon 主题/设置页"
-grep -q 'VANTAGE_SHA=' diy-part2.sh \
-  && grep -q 'anothaDev/luci-theme-vantage' diy-part2.sh \
-  && grep -q 'cp -a .vantage-src/luci-theme-vantage' diy-part2.sh \
-  && ok "diy-part2 Vantage 拉库步骤在位" || bad "diy-part2 缺 Vantage 拉库步骤"
+grep -q 'FLUENT_SHA=' diy-part2.sh \
+  && grep -q 'LazuliKao/luci-theme-fluent' diy-part2.sh \
+  && grep -q 'cp -a .fluent-src/package/luci-theme-fluent' diy-part2.sh \
+  && ok "diy-part2 Fluent 拉库步骤在位" || bad "diy-part2 缺 Fluent 拉库步骤"
 grep -q '^CONFIG_PACKAGE_luci-app-samba4=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_vsftpd=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_luci-app-upnp=y$' "$CFG" \
@@ -131,8 +134,8 @@ grep -q '^CONFIG_PACKAGE_luci-app-samba4=y$' "$CFG" \
 # miniupnpd 是虚拟包（PROVIDES），写裸名会被 defconfig 静默丢掉（run 已实测报错）
 ! grep -q '^CONFIG_PACKAGE_miniupnpd=y$' "$CFG" \
   && ok "未写裸虚拟包 miniupnpd" || bad "CONFIG_PACKAGE_miniupnpd=y 是虚拟包，必选 miniupnpd-nftables"
-! find files -iname '*vantage*' -print -quit 2>/dev/null | grep -q . \
-  && ok "files/ 无 Vantage 静态残留" || bad "files/ 残留 Vantage 注入文件（应删除）"
+! find files -iname '*vantage*' -o -iname '*fluent*' 2>/dev/null | grep -q . \
+  && ok "files/ 无 Vantage/Fluent 静态残留" || bad "files/ 残留主题注入文件（应删除）"
 
 # ---------------------------------------------------------------
 sec "5. workflow 结构与防回归"
