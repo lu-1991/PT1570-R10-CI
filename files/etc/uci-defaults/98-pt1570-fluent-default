@@ -1,0 +1,24 @@
+#!/bin/sh
+# PT1570-R10：默认 LuCI 主题设为 Fluent（PT1570-R10-CI 注入）
+#
+# 执行顺序要点：uci-defaults 按文件名排序执行，厂商包里的
+# 97-rtl9617c-argon-default 会无条件把 luci.main.mediaurlbase 设成 argon，
+# 所以本脚本必须排在它之后（98 > 97），否则又被改回 Argon。
+#
+# 只在“没选过”或“还是 argon/bootstrap”时才改，保留用户自己手动选的主题
+# （例：切到 material 后，升级固件不会被强行拉回 Fluent）。
+
+[ -d /www/luci-static/fluent ] || exit 0
+
+uci -q get luci.themes.Fluent >/dev/null 2>&1 || \
+	uci set luci.themes.Fluent='/luci-static/fluent'
+
+cur=$(uci -q get luci.main.mediaurlbase)
+case "$cur" in
+	""|/luci-static/argon|/luci-static/bootstrap)
+		uci set luci.main.mediaurlbase='/luci-static/fluent'
+		;;
+esac
+
+uci commit luci
+exit 0

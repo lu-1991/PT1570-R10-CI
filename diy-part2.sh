@@ -319,14 +319,17 @@ for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
   echo "  OK   $sym"
 done
 # 两套主题并存（2026-11-18 用户确认）：argon 由设备 profile 的 DEVICE_PACKAGES
-# 与 pon 包依赖强选，配置里也显式打开；默认主题由 pon 包的
-# 97-rtl9617c-argon-default 设为 Argon，Fluent 可在「系统→语言和界面」切换。
-echo "  OK   argon 主题 + 设置页已内置（默认 Argon，Fluent 可切换）"
+# 与 pon 包依赖强选，配置里也显式打开；默认主题由 files/etc/uci-defaults/
+# 98-pt1570-fluent-default 设为 Fluent（必须排在厂商的 97-rtl9617c-argon-default
+# 之后，否则又被改回 Argon），Argon 仍可在「系统→语言和界面」切换。
+echo "  OK   Fluent 默认 + argon 并存（Fluent 设置页随包编译）"
 
 # files/ 静态注入已废弃：主题一律走 package 源码构建，残留文件说明有旧缓存
-find files -iname '*vantage*' -o -iname '*fluent*' 2>/dev/null | grep -q . \
-  && fail "files/ 里残留 Vantage/Fluent 注入文件（应删除，主题已改为拉库编译）"
-echo "  OK   files/ 无 Vantage/Fluent 残留"
+# （files/etc/uci-defaults/98-pt1570-fluent-default 是默认主题开关，不算静态注入）
+find files \( -iname '*vantage*' -o -iname '*fluent*' \) ! -path '*/etc/uci-defaults/*' \
+  -print -quit 2>/dev/null | grep -q . \
+  && fail "files/ 里残留 Vantage/Fluent 静态主题文件（应删除，主题走拉库编译）"
+echo "  OK   files/ 无静态主题残留（默认主题脚本除外）"
 grep -q '^# CONFIG_PACKAGE_uboot-envtools is not set$' .config \
   || fail "uboot-envtools 必须关闭"
 echo "  OK   uboot-envtools disabled"

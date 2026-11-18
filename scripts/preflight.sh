@@ -125,6 +125,16 @@ grep -q 'FLUENT_SHA=' diy-part2.sh \
   && grep -q 'LazuliKao/luci-theme-fluent' diy-part2.sh \
   && grep -q 'cp -a .fluent-src/package/luci-theme-fluent' diy-part2.sh \
   && ok "diy-part2 Fluent 拉库步骤在位" || bad "diy-part2 缺 Fluent 拉库步骤"
+# 默认主题脚本：必须排在厂商 97-rtl9617c-argon-default 之后（文件名排序），
+# 否则会被强行改回 Argon
+FDEF=files/etc/uci-defaults/98-pt1570-fluent-default
+if [ -f "$FDEF" ] \
+   && grep -q "mediaurlbase='/luci-static/fluent'" "$FDEF" \
+   && [ "$(basename "$FDEF")" \> "97-rtl9617c-argon-default" ]; then
+  ok "Fluent 默认主题脚本在位且排在厂商 argon 脚本之后"
+else
+  bad "缺 $FDEF 或未设 mediaurlbase=fluent 或文件名排在 97-rtl9617c-argon-default 之前"
+fi
 grep -q '^CONFIG_PACKAGE_luci-app-samba4=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_vsftpd=y$' "$CFG" \
   && grep -q '^CONFIG_PACKAGE_luci-app-upnp=y$' "$CFG" \
@@ -134,7 +144,9 @@ grep -q '^CONFIG_PACKAGE_luci-app-samba4=y$' "$CFG" \
 # miniupnpd 是虚拟包（PROVIDES），写裸名会被 defconfig 静默丢掉（run 已实测报错）
 ! grep -q '^CONFIG_PACKAGE_miniupnpd=y$' "$CFG" \
   && ok "未写裸虚拟包 miniupnpd" || bad "CONFIG_PACKAGE_miniupnpd=y 是虚拟包，必选 miniupnpd-nftables"
-! find files -iname '*vantage*' -o -iname '*fluent*' 2>/dev/null | grep -q . \
+# 静态主题文件（htdocs 等）不许出现在 files/；uci-defaults 里的默认主题脚本除外
+! find files \( -iname '*vantage*' -o -iname '*fluent*' \) ! -path '*/etc/uci-defaults/*' \
+  -print -quit 2>/dev/null | grep -q . \
   && ok "files/ 无 Vantage/Fluent 静态残留" || bad "files/ 残留主题注入文件（应删除）"
 
 # ---------------------------------------------------------------

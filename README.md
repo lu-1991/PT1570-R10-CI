@@ -141,8 +141,11 @@ checkout → CRLF 归一化 → 释放磁盘/装依赖 → 克隆上游(锁 comm
   主题自带设置页「系统 → Fluent Theme」（`/etc/config/fluent`）；
   不追 main 分支：main 依赖 `+flock`，本环境没有 `flock` 包，会被 defconfig 丢包。
   主题不以静态文件注入 `files/`；`luci-theme-argon` + `luci-app-argon-config` 来自
-  kenzok8 feed（`feeds.conf.default` 已钉 commit），**默认主题仍是 Argon**
-  （pon 包的 `97-rtl9617c-argon-default` 设定），Fluent 在「系统 → 语言和界面」里切换。
+  kenzok8 feed（`feeds.conf.default` 已钉 commit），与 Fluent 并存。
+  **默认主题是 Fluent**，由 `files/etc/uci-defaults/98-pt1570-fluent-default` 设定；
+  该脚本必须排在厂商的 `97-rtl9617c-argon-default`（无条件设 Argon）之后，靠文件名
+  排序生效（`98` > `97`），且只在主题「未设置 / 仍是 argon、bootstrap」时才改，
+  不覆盖用户手动选择的其它主题。Argon 仍可在「系统 → 语言和界面」切换。
   局域网服务（samba4 / vsftpd / upnp / wol）直接写进
   `configs/youhua_pt1570-r10.config` 的 `CONFIG_PACKAGE_*`，由 `diy-part2` 第 6 节断言防丢包。
 
