@@ -44,6 +44,29 @@ factory_blob() {
 	fi
 }
 
+# factory 卷对应区域为空时的兜底（2026-11-18）：用随固件内置的
+# flash-calibration.factory-fallback.bin（284B TYFC0003，取自本机 mtd3
+# static_conf NV_CFG 备份：thermal/xtal/TSSI/RX gaingap；扩展增益表为 0，
+# 驱动按缺表降级）+ 现场基础 MAC 填 wlan_address（偏移 0x42，末字节 +1/+2）。
+factory_fallback() {
+	local chip="$1" mac_off="$2" target="$3"
+	local fb="/lib/firmware/realtek/tyfza1/$chip/flash-calibration.factory-fallback.bin"
+	local mac last
+	[ -f "$fb" ] || { logger -t tyfza1-factory "factory fallback missing: $fb"; return 1; }
+	mkdir -p "${target%/*}"
+	cp "$fb" "$target"
+	chmod 0644 "$target"
+	mac=$(factory_mac $((0x1000)))
+	if [ "${#mac}" = 12 ] && [ "$mac" != ffffffffffff ]; then
+		last=$(printf '%02x' $((0x$(printf '%s' "$mac" | cut -c11-12) + mac_off)))
+		printf '%b' "$(printf '%s' "$(printf '%s' "$mac" | cut -c1-10)$last" \
+			| sed 's/../\\x&/g')" \
+			| dd of="$target" bs=1 seek=66 conv=notrunc 2>/dev/null
+	fi
+	logger -t tyfza1-factory "flash-calibration for $chip came from factory-fallback"
+	return 0
+}
+
 start() {
 	local runtime=/tmp/tyfza1-factory
 	local runstate=/var/run/tyfza1-factory
@@ -87,8 +110,11 @@ start() {
 
 	# WiFi 板级校准：驱动按 sizeof(struct rtl_ax_board_cal)=284 严格校验，
 	# 多一个字节都是 -EINVAL。只写结构体本身，不要整块 4096。
-	factory_blob $((0x2000)) 284 "$runtime/tyfza1/rtl8852ce/flash-calibration.bin"
-	factory_blob $((0x3000)) 284 "$runtime/tyfza1/rtl8192xbe/flash-calibration.bin"
+	# factory 卷该区域为空时走 fallback（否则驱动 probe -ENOENT，无线全灭）。
+	factory_blob $((0x2000)) 284 "$runtime/tyfza1/rtl8852ce/flash-calibration.bin" \
+		|| factory_fallback rtl8852ce 2 "$runtime/tyfza1/rtl8852ce/flash-calibration.bin"
+	factory_blob $((0x3000)) 284 "$runtime/tyfza1/rtl8192xbe/flash-calibration.bin" \
+		|| factory_fallback rtl8192xbe 1 "$runtime/tyfza1/rtl8192xbe/flash-calibration.bin"
 	factory_blob $((0x4000)) 1024 "$runtime/rtl9617c/bosa-calibration.bin"
 	if [ "$(factory_read $((0x5000)) 7)" = PONA2H1 ]; then
 		factory_read $((0x5000)) 520 > "$runtime/rtl9617c/a2h.bin"

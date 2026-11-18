@@ -378,6 +378,32 @@ grep -q 'PT1570_R10_UPGRADE_HOOK_GUARD' scripts/apply-board.sh \
   || bad "apply-board.sh 缺 pt1500-fip.sh 机型守护注入"
 
 # ---------------------------------------------------------------
+sec "7e. WiFi 校准文件链路（2026-11-18：缺 symlink = probe -ENOENT 无线全灭）"
+# 驱动 board-cal.h request_firmware 读 /lib/firmware/.../flash-calibration.bin，
+# 真文件由 tyfza1-factory(START=09) 开机生成在 /tmp，rootfs 里必须是符号链接
+# （原厂 rootfs 如此；GitHub 网页上传把 symlink 弄丢了才引入这个坑）。
+for chip in rtl8192xbe rtl8852ce; do
+  LNK="files/lib/firmware/realtek/tyfza1/$chip/flash-calibration.bin"
+  MODE=$(git ls-files -s -- "$LNK" 2>/dev/null | awk '{print $1}')
+  [ "$MODE" = "120000" ] \
+    && ok "$LNK 是符号链接（git mode 120000）" \
+    || bad "$LNK 不是符号链接（git mode=${MODE:-无}，驱动 probe 会失败）"
+  FB="files/lib/firmware/realtek/tyfza1/$chip/flash-calibration.factory-fallback.bin"
+  if [ "$(stat -c %s "$FB" 2>/dev/null)" = "284" ] \
+     && [ "$(head -c 8 "$FB")" = "TYFC0003" ]; then
+    ok "fallback blob 284B TYFC0003 ($chip，源自 mtd3 NV_CFG 备份)"
+  else
+    bad "$FB 不是 284B TYFC0003"
+  fi
+done
+grep -q 'factory_fallback ' files/etc/init.d/tyfza1-factory \
+  && grep -q 'flash-calibration.factory-fallback.bin' files/etc/init.d/tyfza1-factory \
+  && ok "tyfza1-factory 兜底逻辑在位（factory 卷空时不至于无线全灭）" \
+  || bad "tyfza1-factory 缺 factory_fallback 兜底逻辑"
+sh -n files/etc/init.d/tyfza1-factory \
+  && ok "tyfza1-factory 语法检查通过" || bad "tyfza1-factory 语法错误"
+
+# ---------------------------------------------------------------
 sec "8. 源码树注入深度校验（可选，WRT=源码树时执行）"
 if [ -n "${WRT:-}" ] && [ -d "$WRT/target/linux/rtl9617c" ]; then
   test -f "$WRT/target/linux/rtl9617c/dts/rtl9617c-pt1570-r10.dts" \

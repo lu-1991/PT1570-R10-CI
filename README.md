@@ -290,6 +290,18 @@ ip -br addr show br-lan           # 192.168.1.1
 
 ## 9. 常见问题
 
+**Q：刷完固件后没有 SSID，`logread | grep rtl_ax_ap` 里 probe 失败？**
+驱动 `rtl_ax_ap` 在启动时要读 `/lib/firmware/realtek/tyfza1/<芯片>/flash-calibration.bin`
+（284 字节 TYFC0003 板级校准）。真文件是 `tyfza1-factory`（START=09）开机从 factory
+UBI 卷生成到 `/tmp`，rootfs 里放的是**符号链接**（原厂如此）。早期这个仓库经
+GitHub 网页上传（Add files via upload），**symlink 被静默丢掉**，驱动
+`request_firmware` 直接 -ENOENT → 两颗 WiFi 芯片 probe 失败 → 无线全灭。
+2026-11-18 起已恢复两条 symlink，并加了兜底：factory 卷对应区域为空时，
+`tyfza1-factory` 会改用内置的 `flash-calibration.factory-fallback.bin`
+（284B，从本机 mtd3 static_conf 的 NV_CFG 备份合成：thermal/晶振/TSSI/RX
+gaingap 为真实值，扩展增益表为 0）+ 现场 MAC 填 `wlan_address`。
+自查：`ls -la /lib/firmware/realtek/tyfza1/rtl8192xbe/` 应看到 `flash-calibration.bin -> /tmp/...`。
+
 **Q：编译刚跑 20 多秒就失败，日志里只有 "Process completed with exit code 1"？**
 `diy-part2.sh` 的每条断言都用 `::error::diy-part2: <原因>` 输出，GitHub 会把它渲染成
 run 页面顶部的注解，不点进日志也能看到；`ERR trap` 还会兜住"没预想到会失败"的命令
