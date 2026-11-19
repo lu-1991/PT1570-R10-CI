@@ -102,6 +102,14 @@ sysupgrade -n /tmp/openwrt-...-youhua_pt1570_r10-squashfs-sysupgrade-20261114-15
 无线默认值由原厂脚本 `files/etc/uci-defaults/92-tyfza1-wifi-default` 在首启生成
 （后缀取 LAN MAC 末 4 位），与本仓库 2026-11-19 解包的 `new-fit-4ge-20261119.itb` 一致。
 其它默认值都是"仅在仍是出厂默认时才改"，用户动过的项不会被覆盖。
+
+**CI 适配（2026-11-19 启动链路复核）**：原厂 `S09tyfza1-factory` 用 ucode 工具链生成
+LAN MAC，本仓库用的是 284B 校准修复版；factory 卷缺失、魔数错或基础 MAC 全 FF 时，
+`/tmp/tyfza1-factory/lan_mac` 不会生成，而 `br-lan` 在首启脚本阶段（S10boot）还没由
+netifd（S20network）创建。因此 92 号脚本补了 `lan1` / `eth0` / `ieee80211/phy0` 的 MAC
+回退；全部落空时后缀退化为 `0000`，但 SSID、WPA2 密码和双频启用**照样下发**，不会
+退回上游默认的 `OpenWrt` / 无密码 / 5G 关闭。若 `wifi-iface` 尚未由 hotplug 生成，
+脚本返回 1 让 boot 保留它、下次开机重试，绝不往不存在的节里写。
 **想改 SSID / 密码**：LuCI → 网络 → 无线 → 修改即可，不需要重新编译。
 
 ---
@@ -245,6 +253,26 @@ let htmode = filter(htmode_order, (m) => band[lc(m)])[0];
 > 顺带纠正一个常见误判：`iwinfo` 显示的 `HT Mode: HT40` **不代表真实带宽**，它读的是
 > `ht_capab` 里的 `SHORT-GI-40` 标志位。真实带宽只看 `iw dev phyX-ap0 info` 的 `width`。
 
+### 6.1 这次"完全对齐 ITB"对开机过程的影响（2026-11-19 复核）
+
+**没有改动引导链**：kernel / DTB / FIT / bootloader / preinit / `mount_root` /
+`/etc/init.d/boot` 主体 / `config_generate` / 网络与 rc.d 顺序都没动。新增和替换的文件
+全部落在开机**之后**的用户态配置阶段：
+
+| 文件 | 开机阶段 | 行为 |
+|---|---|---|
+| `etc/board.d/03_wireless`、`etc/hotplug.d/ieee80211/10-wifi-detect` | preinit / phy add | 与上游源码逐字相同，覆盖是幂等的 |
+| `etc/modules.d/50-rtl-ax-ap` | `S10boot` → `kmodloader` | 上游 `KernelPackage/rtl-ax-ap` 本来就是 `AutoLoad,50,rtl_ax_ap`，同名同内容 |
+| `etc/uci-defaults/92-*` | `S10boot` → `uci_apply_defaults` | 一次性脚本，`( . "$file" )` 在子 shell 里执行、无 `set -e`，失败只保留脚本不中断 boot |
+| `etc/init.d/97-wifi-roaming` | — | 仓库**没有** `/etc/rc.d/S97...` 链接、也不编译 `luci-app-mesh`，因此开机不执行、不写配置 |
+| `lib/firmware/realtek/tyfza1/*` | 驱动 probe 时读取 | 70 张射频表 / 8 个 bin，纯数据 |
+
+`boot()` 里 `uci_apply_defaults` 的实现是 `for file in ...; ( . "./$file" ) && applied=...; done`，
+任何脚本报错都不会让 boot 失败，最坏结果是该脚本留到下次开机重试。所以**不会导致系统
+无法启动**；真正可能出问题的只有"无线配置没生效或驱动 probe 失败"，此时串口、有线网口、
+SSH / LuCI 都仍可用。唯一需要真机确认的是：驱动起来后 `iw dev` 有两路 phy、
+`iwinfo` 里 SSID 为 `TYFZA1-xxxx` / `TYFZA1-5G-xxxx` 且加密为 WPA2-PSK。
+
 ---
 
 ## 7. 目录结构
@@ -257,7 +285,7 @@ let htmode = filter(htmode_order, (m) => band[lc(m)])[0];
 │   └── youhua_pt1570-r10.config     # 机型无关的基础包集合（机型由 target_model 决定）
 ├── files/                           # 原样覆盖进 rootfs
 │   ├── etc/init.d/tyfza1-factory            # factory 校准提取（必须精确 284 字节）
-│   ├── etc/init.d/97-wifi-roaming            # 原厂 11k/v 自愈（FT_ENABLE=0）
+│   ├── etc/init.d/97-wifi-roaming            # 原厂 11k/v 自愈脚本（随包保留，未 enable，不开机执行）
 │   ├── etc/uci-defaults/92-tyfza1-wifi-default     # 原厂 SSID + WPA2-PSK（首启生成）
 │   ├── etc/uci-defaults/92-tyfza1-wireless-country # 原厂 country=CN
 │   ├── etc/uci-defaults/95-pt1570-wan-default  # 默认 WAN：pon0.1101 + PPPoE + PON FE

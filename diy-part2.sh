@@ -80,6 +80,15 @@ grep -qF "wireless.default_radio0.encryption='psk2'" "$WIFI_DEF" \
   || fail "$WIFI_DEF 未设置 WPA2-PSK"
 grep -qF "wireless.default_radio0.key='12345678'" "$WIFI_DEF" \
   || fail "$WIFI_DEF 未设置原厂默认密钥"
+# 2026-11-19 启动链路复核：factory 卷异常时 /tmp/tyfza1-factory/lan_mac 不存在，
+# br-lan 在 S10boot 也还没建，原版 92 号脚本会 exit 0 提前退出并被 boot 删除，
+# 导致 5G 停在 disabled=1 / SSID=OpenWrt / 加密=none。CI 版必须有回退与重试。
+grep -qF 'suffix="0000"' "$WIFI_DEF" \
+  || fail "$WIFI_DEF 缺无 MAC 兜底（factory 卷异常时默认无线配置会整段跳过）"
+! grep -qE '^\[ -n "\$suffix" \] \|\| exit 0' "$WIFI_DEF" \
+  || fail "$WIFI_DEF 仍会在无 MAC 时 exit 0 被 boot 删除"
+grep -qF "|| exit 1" "$WIFI_DEF" \
+  || fail "$WIFI_DEF 缺 wifi-iface 时序重试保护"
 # htmode / 信道仍交还驱动推导：模板里不允许残留旧的 HT20 钉死。
 if [ -f "$WIFI_UC" ]; then
   if grep -qE 'htmode[[:space:]]*=[[:space:]]*"HT20"' "$WIFI_UC"; then

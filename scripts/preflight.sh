@@ -246,6 +246,22 @@ if [ -f "$D2" ]; then
   ! grep -q 'radio0' "$W98" 2>/dev/null \
     && ok "断流缓解脚本按 band/hwmode 判定（无 radio0 直写）" \
     || bad "断流缓解脚本出现 radio0 直写"
+  # 首启健壮性（2026-11-19 复核）：factory 卷异常时原厂 92 号脚本的两个 MAC
+  # 来源都不存在，原版会 exit 0 提前退出且被 boot 删除 -> 5G 不启用、
+  # SSID=OpenWrt、加密=none。CI 版必须能回退并保留脚本重试。
+  W92=files/etc/uci-defaults/92-tyfza1-wifi-default
+  grep -qF '/sys/class/ieee80211/phy0/macaddress' "$W92" 2>/dev/null \
+    && ok "92 号脚本有 S10 阶段可用的 MAC 回退源" \
+    || bad "92 号脚本缺 MAC 回退源"
+  grep -qF 'suffix="0000"' "$W92" 2>/dev/null \
+    && ok "拿不到 MAC 也下发默认无线配置" \
+    || bad "92 号脚本拿不到 MAC 时仍会跳过配置"
+  ! grep -qE '^\[ -n "\$suffix" \] \|\| exit 0' "$W92" 2>/dev/null \
+    && ok "无 MAC 时不再 exit 0 被 boot 误删" \
+    || bad "92 号脚本仍残留无 MAC 即 exit 0"
+  grep -qF "|| exit 1" "$W92" 2>/dev/null \
+    && ok "wifi-iface 未生成时返回 1 保留脚本重试" \
+    || bad "92 号脚本缺时序重试保护"
 fi
 
 # ---------------------------------------------------------------
