@@ -17,7 +17,7 @@ define Device/youhua_pt1570_r10
   DEVICE_DTS := rtl9617c-pt1570-r10
   DEVICE_DTS_DIR := ../dts
   DEVICE_PACKAGES := fitblk kmod-rtl-ax-ap tyfza1-pon-control luci-app-tyfza1-pon \
-	ubi-utils nand-utils iw wpad-mbedtls wifi-scripts wireless-regdb \
+	ubi-utils nand-utils iw wpad-mesh-openssl wifi-scripts wireless-regdb \
 	kmod-gpio-button-hotplug kmod-usb3 kmod-usb-storage kmod-usb-storage-uas \
 	block-mount kmod-fs-vfat kmod-fs-ext4 kmod-nls-utf8 \
 	luci luci-ssl luci-proto-ppp luci-app-firewall uhttpd uhttpd-mod-ubus \

@@ -95,12 +95,14 @@ sysupgrade -n /tmp/openwrt-...-youhua_pt1570_r10-squashfs-sysupgrade-20261114-15
 | 主机名 | 跟随机型，如 `PT1570-R10` |
 | 时区 | `Asia/Shanghai`，NTP 用国内源（aliyun / tencent / ntsc / cn.pool） |
 | WAN | `pon0.1101`（8021q）+ PPPoE + PON FE(`offload=1`)，账号密码留空待填 |
-| 5G | SSID `PT1570-R10-5G`，**开放（无密码）**，htmode/信道交还驱动推导（预期 HE80 / auto） |
-| 2.4G | SSID `PT1570-R10-2.4G`，**开放（无密码）**，htmode/信道交还驱动推导（预期 HE20 / auto） |
+| 5G | SSID `TYFZA1-5G-<MAC末4位>`，**WPA2-PSK / `12345678`**（与 ITB 原厂一致），htmode/信道交还驱动推导（预期 HE80 / auto） |
+| 2.4G | SSID `TYFZA1-<MAC末4位>`，**WPA2-PSK / `12345678`**（与 ITB 原厂一致），htmode/信道交还驱动推导（预期 HE20 / auto） |
 | 面板灯 | 跟随真实网口（EPHY0..3 → LAN4..LAN1） |
 
-所有默认值都是"仅在仍是出厂默认时才改"，用户动过的项不会被覆盖。
-**想改回加密**：LuCI → 网络 → 无线 → 修改 → 加密选 WPA2-PSK 并设密码即可，不需要重新编译。
+无线默认值由原厂脚本 `files/etc/uci-defaults/92-tyfza1-wifi-default` 在首启生成
+（后缀取 LAN MAC 末 4 位），与本仓库 2026-11-19 解包的 `new-fit-4ge-20261119.itb` 一致。
+其它默认值都是"仅在仍是出厂默认时才改"，用户动过的项不会被覆盖。
+**想改 SSID / 密码**：LuCI → 网络 → 无线 → 修改即可，不需要重新编译。
 
 ---
 
@@ -227,7 +229,8 @@ let htmode = filter(htmode_order, (m) => band[lc(m)])[0];
 | 5G（8852C） | ✅ | ✅ | ✅ | ❌ | **HE80**（max_width 160 封顶 80） |
 
 因此本仓库同样**不做任何钉死**：htmode、信道全部交还驱动推导（信道为 auto），
-首启脚本只兜 country=CN、启用、不隐藏——与原厂行为一致。
+`mac80211.uc` 保持上游/原厂原样；SSID 与 WPA2-PSK 由原厂 92 号 uci-defaults 在首启生成，
+本仓库的兜底脚本只补 country=CN、启用、不隐藏和断流缓解——与原厂行为一致。
 
 **历史与风险提示（2026-11-14 的 HE 信标事件）**：当时真机上 2.4G 推导出 HE20，
 出现"Windows 能搜到能连、Android 永远看不到 SSID"的现象（疑似 HE 信标兼容性），
@@ -254,12 +257,15 @@ let htmode = filter(htmode_order, (m) => band[lc(m)])[0];
 │   └── youhua_pt1570-r10.config     # 机型无关的基础包集合（机型由 target_model 决定）
 ├── files/                           # 原样覆盖进 rootfs
 │   ├── etc/init.d/tyfza1-factory            # factory 校准提取（必须精确 284 字节）
+│   ├── etc/init.d/97-wifi-roaming            # 原厂 11k/v 自愈（FT_ENABLE=0）
+│   ├── etc/uci-defaults/92-tyfza1-wifi-default     # 原厂 SSID + WPA2-PSK（首启生成）
+│   ├── etc/uci-defaults/92-tyfza1-wireless-country # 原厂 country=CN
 │   ├── etc/uci-defaults/95-pt1570-wan-default  # 默认 WAN：pon0.1101 + PPPoE + PON FE
 │   ├── etc/uci-defaults/96-pt1570-r10-leds     # 面板灯 → 真实网口
 │   ├── etc/uci-defaults/97-pt1570-r10-wifi24   # 2.4G 首启兜底：country/启用/不隐藏（见 §6）
 │   ├── etc/uci-defaults/98-pt1570-r10-wifi-stability  # 断流缓解：不踢空闲终端 + country（见 FAQ）
 │   ├── etc/uci-defaults/99-pt1570-fit          # 时区/主机名/FIT 接线兜底
-│   └── lib/firmware/realtek/tyfza1/            # WiFi AP 固件 8×bin + 42 张 RFE54 射频表
+│   └── lib/firmware/realtek/tyfza1/            # WiFi AP 固件 + 70 张射频表（RFE50 + RFE54）
 ├── board/
 │   ├── dts/rtl9617c-pt1570-r10.dts  # 板级 DTS（root=/dev/fit0 自洽启动、按键修正）
 │   ├── devices/pt1570-r10.mk.inc    # image/Makefile 的 Device 定义片段
@@ -269,7 +275,7 @@ let htmode = filter(htmode_order, (m) => band[lc(m)])[0];
 │   ├── overlay-wifi-driver.sh       # 整套替换驱动（含 pe-tx-code.h md5 强校验）
 │   ├── patch-upstream.sh            # 上游修补：factory 284 / fitblk 上限 / R10 端口命名
 │   ├── preflight.sh                 # 静态自检，编译前跑，任何 FAIL 立即终止
-│   ├── verify-rf-tables.py          # 42 张表逐字段模拟驱动解析器
+│   ├── verify-rf-tables.py          # 70 张表逐字段模拟驱动解析器
 │   └── verify-fit-boot.py           # 产物 FIT 结构 + bootargs 可启动性校验
 ├── .github/workflows/
 │   └── Build-PT1570-R10.yml         # 唯一 workflow（32 步）
@@ -287,7 +293,7 @@ dmesg | grep -i rtl_ax            # 应见 native AP backend ... WCPU ready（�
 mount | grep ' / '                # squashfs + overlay（不是 tmpfs）
 iw dev                            # phy0-ap0 / phy1-ap0 均存在
 iw dev phy1-ap0 info | head -8    # 2.4G：width 20 MHz
-iwinfo phy1-ap0 info | grep -E 'ESSID|Encryption'   # PT1570-R10-2.4G / none
+iwinfo phy1-ap0 info | grep -E 'ESSID|Encryption'   # TYFZA1-xxxx / WPA2-PSK
 ip -br addr show br-lan           # 192.168.1.1
 ```
 

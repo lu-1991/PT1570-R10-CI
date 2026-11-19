@@ -31,14 +31,12 @@ case "$PROFILE" in
 esac
 WRT_IP="${WRT_IP:-192.168.1.1}"
 WRT_NAME="${WRT_NAME:-$MODEL_LABEL}"
-WRT_SSID="${WRT_SSID:-$MODEL_LABEL}"
-# 双频独立 SSID（2026-11-14 真机确定）：5G 带 -5G 后缀，2.4G 带 -2.4G 后缀。
-SSID_5G="${SSID_5G:-${WRT_SSID}-5G}"
-SSID_24G="${SSID_24G:-${WRT_SSID}-2.4G}"
+# 2026-11-19 起无线默认值完全跟随 ITB 原厂固件：SSID/加密由
+# files/etc/uci-defaults/92-tyfza1-wifi-default 在首启时生成，不再编译期改写模板。
 WRT_TZ="${WRT_TZ:-<+08>-8}"
 WRT_ZONENAME="${WRT_ZONENAME:-Asia/Shanghai}"
 FW_AUTHOR="${FW_AUTHOR:-lu-1991}"
-echo "TARGET_MODEL=$PROFILE (hostname/SSID=$MODEL_LABEL)"
+echo "TARGET_MODEL=$PROFILE (hostname=$MODEL_LABEL)"
 
 CFG="package/base-files/files/bin/config_generate"
 WIFI_UC="package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
@@ -64,72 +62,36 @@ else
   echo "::warning::未找到 $CFG，跳过默认值修改"
 fi
 
-echo "---- [1b/7] 无线模板（SSID 分频段 / 首启启用） ----"
-# ---- 1b. 无线默认值：首启即启用 + 分频段 SSID ----
-# mac80211.uc 是 /etc/config/wireless 的生成器，必须改掉的行为：
-#   默认把 wifi-iface 写成 disabled='1'（只有 board.json 带 wlan.defaults
-#   才启用，R10 没有），结果"刷完看不到任何 SSID"。
-#
-# htmode / 信道**不做任何钉死**，完全交还驱动能力推导（与原厂固件行为一致，
-# 2026-11-16 对比原厂 rootfs 后的决定）：
-#   - 驱动宣称 HE（2G/5G 都宣称）-> 2G 推导为 HE20、5G 为 HE80（>80 封顶 80）
-#   - 驱动无 EHT 能力，htmode_order 里的 "EHT" 永远不会被选中
-#
-# 用 python 做整段精确替换，不用 sed：模板里含 "||" 与引号，sed 分隔符很难选；
-# 而且上游只要缩进差一个 tab，sed 就会"改不动也不报错"地静默失配。
+echo "---- [1b/7] 无线方案（完全对齐 ITB 原厂固件） ----"
+# ---- 1b. 无线默认值：mac80211.uc 保持原厂/上游原样 ----
+# 2026-11-19：从 new-fit-4ge-20261119.itb 解包确认，原厂 mac80211.uc 与上游
+# 逐行相同；SSID / WPA2-PSK / 首启启用全部由原厂 uci-defaults 负责：
+#   files/etc/uci-defaults/92-tyfza1-wifi-default
+#   files/etc/uci-defaults/92-tyfza1-wireless-country
+# 本脚本不再改写生成器，只做"没有被上一版钉死脚本污染"的硬断言。
+WIFI_DEF=files/etc/uci-defaults/92-tyfza1-wifi-default
+test -f "$WIFI_DEF" \
+  || fail "缺少原厂无线默认脚本 $WIFI_DEF"
+grep -qF "wireless.default_radio0.ssid=\"TYFZA1-5G-" "$WIFI_DEF" \
+  || fail "$WIFI_DEF 未设置原厂 5G SSID"
+grep -qF "wireless.default_radio1.ssid=\"TYFZA1-" "$WIFI_DEF" \
+  || fail "$WIFI_DEF 未设置原厂 2.4G SSID"
+grep -qF "wireless.default_radio0.encryption='psk2'" "$WIFI_DEF" \
+  || fail "$WIFI_DEF 未设置 WPA2-PSK"
+grep -qF "wireless.default_radio0.key='12345678'" "$WIFI_DEF" \
+  || fail "$WIFI_DEF 未设置原厂默认密钥"
+# htmode / 信道仍交还驱动推导：模板里不允许残留旧的 HT20 钉死。
 if [ -f "$WIFI_UC" ]; then
-  command -v python3 >/dev/null 2>&1 \
-    || fail "改写 mac80211.uc 需要 python3"
-  python3 - "$WIFI_UC" "$SSID_24G" "$SSID_5G" <<'PY'
-import sys
-
-path, ssid24, ssid5 = sys.argv[1], sys.argv[2], sys.argv[3]
-# newline="" 关掉换行转换：否则在 Windows 上跑会写出 CRLF，ucode 解析异常
-src = open(path, encoding="utf-8", newline="").read().replace("\r\n", "\n")
-
-# 1) 模板里的"默认值表达式"逐个换成固定值；每处必须唯一命中，否则说明
-#    上游模板已经改了，宁可立刻失败也不要编出一个 SSID 还是 OpenWrt 的固件。
-subs = [
-    ('${defaults?.ssid || "OpenWrt"}',
-     "${defaults?.ssid || (band_name == '2g' ? \"%s\" : \"%s\")}" % (ssid24, ssid5)),
-    ('${defaults?.encryption || encryption}', 'none'),
-    ('${defaults?.key || ""}', ''),
-    ("set ${si}.disabled='${defaults ? 0 : 1}'", "set ${si}.disabled='0'"),
-]
-for old, new in subs:
-    n = src.count(old)
-    if n != 1:
-        sys.exit("ERROR: mac80211.uc 模板片段命中 %d 次（应为 1）：%r" % (n, old))
-    src = src.replace(old, new)
-
-# htmode 推导块保持上游原样：2G/5G 的协议由驱动宣称的能力决定
-# （详见上方注释；原厂固件就是这么工作的）。
-
-open(path, "w", encoding="utf-8", newline="").write(src)
-PY
-  # 改完必须真的落地，否则两小时的编译白跑
-  grep -qF "set \${si}.disabled='0'" "$WIFI_UC" \
-    || fail "mac80211.uc 默认启用改写失败（上游模板变了？）"
-  grep -qF "set \${si}.encryption='none'" "$WIFI_UC" \
-    || fail "mac80211.uc 加密未设为 none"
-  grep -qF "$SSID_24G" "$WIFI_UC" \
-    || fail "2.4G SSID（$SSID_24G）未写入模板"
-  grep -qF "$SSID_5G" "$WIFI_UC" \
-    || fail "5G SSID（$SSID_5G）未写入模板"
-  # 交还驱动推导：模板里不允许再出现我们曾经注入的 htmode 字面量钉死。
-  # 注意只能查 "HT20" 字面量，不能查 `band_name == "2G"` —— 上游模板第 77 行
-  # 本来就是 `if (band_name == "2G") width = 20;`（2G 带宽锁 20MHz），
-  # 2026-11-16 run 43787694475 就是因为把它当标记而误判失败。
   if grep -qE 'htmode[[:space:]]*=[[:space:]]*"HT20"' "$WIFI_UC"; then
     fail "mac80211.uc 仍存在 htmode 钉死（应交还驱动推导）"
   fi
-  # 正向确认：推导块必须是上游原样，否则说明替换脚本把它改坏了
   grep -qF 'filter(htmode_order, (m) => band[lc(m)])[0]' "$WIFI_UC" \
-    || fail "mac80211.uc 的 htmode 推导块被改动（应交还驱动推导）"
-  echo "✅ 无线默认：5G=$SSID_5G / 2.4G=$SSID_24G，加密=none，首启即启用，htmode 交还驱动推导"
+    || fail "mac80211.uc 的 htmode 推导块缺失（原厂应保持上游原样）"
+  echo "✅ mac80211.uc 保持原厂原样，htmode/信道交还驱动推导"
 else
-  echo "::warning::未找到 $WIFI_UC，跳过无线默认值"
+  echo "::warning::未找到 $WIFI_UC，跳过模板核验"
 fi
+echo "✅ 无线默认：原厂 TYFZA1-xxxx / TYFZA1-5G-xxxx + WPA2-PSK（首启由 92 号脚本生成）"
 
 echo "---- [1c/7] 2.4G 开机兜底脚本 ----"
 # ---- 1c. 2.4G 开机兜底：首启阶段补齐 country / 启用 / 不隐藏 ----
@@ -313,7 +275,7 @@ for sym in tyfza1-pon-control luci-ssl uhttpd fitblk tailscale \
            luci-theme-argon luci-app-argon-config \
            luci-i18n-argon-config-zh-cn \
            kmod-fs-ext4 kmod-fs-vfat kmod-nls-utf8 kmod-usb-storage \
-           kmod-usb-storage-uas wpad-mbedtls; do
+           kmod-usb-storage-uas wpad-mesh-openssl; do
   grep -q "^CONFIG_PACKAGE_${sym}=y$" .config \
     || fail "$sym 在两次 defconfig 后被丢弃"
   echo "  OK   $sym"

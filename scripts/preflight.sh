@@ -66,10 +66,10 @@ else
 fi
 
 # ---------------------------------------------------------------
-sec "3. 射频表完整性（42 张 RFE54 表）"
+sec "3. 射频表完整性（70 张：RFE50 + RFE54 全量）"
 T=files/lib/firmware/realtek/tyfza1
 n=$(find "$T" -name '*.txt' | wc -l)
-[ "$n" = 42 ] && ok "42 张 .txt" || bad "射频表 $n != 42"
+[ "$n" = 70 ] && ok "70 张 .txt" || bad "射频表 $n != 70"
 nb=$(find "$T" -name '*.bin' | wc -l)
 [ "$nb" -ge 7 ] && ok "WiFi 固件 bin ≥ 7 ($nb)" || bad "bin 仅 $nb"
 python3 scripts/verify-rf-tables.py "$T" >/dev/null \
@@ -99,7 +99,7 @@ CFG=configs/youhua_pt1570-r10.config
 for sym in CONFIG_TARGET_rtl9617c=y CONFIG_PACKAGE_fitblk=y \
            CONFIG_PACKAGE_tyfza1-pon-control=y CONFIG_PACKAGE_luci-ssl=y \
            CONFIG_PACKAGE_uhttpd=y CONFIG_PACKAGE_tailscale=y \
-           CONFIG_PACKAGE_wpad-mbedtls=y CONFIG_LUCI_LANG_zh_Hans=y; do
+           CONFIG_PACKAGE_wpad-mesh-openssl=y CONFIG_LUCI_LANG_zh_Hans=y; do
   grep -q "^${sym}$" "$CFG" && ok "$sym" || bad "$CFG 缺 $sym"
 done
 ! grep -q '^CONFIG_PACKAGE_uboot-envtools=y$' "$CFG" \
@@ -199,27 +199,30 @@ else
 fi
 
 # ---------------------------------------------------------------
-sec "5c. 无线默认值（2026-11-16 起对齐原厂：协议/信道交还驱动推导）"
-# 回归点（都真实发生过）：
-#   * 加密改回 psk2 / SSID 不分频段 -> 首启分不清哪个是 2.4G；
-#   * 生成器把 wifi-iface 写 disabled=1 -> 刷完看不到任何 SSID。
-# 2026-11-16 决定：htmode / 信道不再钉死（原厂 rootfs 的 mac80211.uc 与上游
-# 逐行相同，全靠驱动能力推导：2G=HE20、5G=HE80、信道 auto）。
-# 历史：2026-11-14 曾钉 2G HT20 修"手机搜不到 2.4G"，未经真机复验即回退。
+sec "5c. 无线默认值（2026-11-19 起完全对齐 ITB 原厂固件）"
+# 原厂 new-fit-4ge-20261119.itb 的 mac80211.uc 与上游逐行相同；SSID / 加密 /
+# 启用全部由原厂 uci-defaults 在首启生成，不再编译期改写生成器。
+# htmode / 信道仍交还驱动推导：2G=HE20、5G=HE80、信道 auto。
 D2=diy-part2.sh
 if [ -f "$D2" ]; then
   ! grep -qF 'htmode = "HT20"' "$D2" \
     && ok "生成器不钉 htmode（协议交还驱动推导，与原厂一致）" \
     || bad "diy-part2 仍存在 HT20 钉死（应交还驱动推导）"
-  grep -qF "band_name == '2g' ?" "$D2" \
-    && ok "SSID 按频段区分（-2.4G / -5G）" \
-    || bad "diy-part2 未按频段区分 SSID"
-  grep -qF "', 'none')," "$D2" \
-    && ok "无线默认开放（encryption=none）" \
-    || bad "diy-part2 未把默认加密设为 none"
-  grep -q 'command -v python3' "$D2" \
-    && ok "改写前检查 python3（缺了会明确报错）" \
-    || bad "diy-part2 未检查 python3"
+  ! grep -qF "band_name == '2g' ?" "$D2" \
+    && ok "不再编译期注入 SSID（由原厂 92 号脚本生成）" \
+    || bad "diy-part2 仍在改写 mac80211.uc 的 SSID"
+  grep -qF "wireless.default_radio0.encryption='psk2'" files/etc/uci-defaults/92-tyfza1-wifi-default 2>/dev/null \
+    && ok "默认加密 = WPA2-PSK（与原厂 ITB 一致）" \
+    || bad "缺原厂 92 号脚本或未设置 WPA2-PSK"
+  grep -qF "wireless.default_radio0.ssid=\"TYFZA1-5G-" files/etc/uci-defaults/92-tyfza1-wifi-default 2>/dev/null \
+    && ok "5G SSID = TYFZA1-5G-xxxx（与原厂 ITB 一致）" \
+    || bad "原厂 92 号脚本未设置 5G SSID"
+  grep -qF "wireless.default_radio1.ssid=\"TYFZA1-" files/etc/uci-defaults/92-tyfza1-wifi-default 2>/dev/null \
+    && ok "2.4G SSID = TYFZA1-xxxx（与原厂 ITB 一致）" \
+    || bad "原厂 92 号脚本未设置 2.4G SSID"
+  grep -q '^CONFIG_PACKAGE_wpad-mesh-openssl=y$' configs/youhua_pt1570-r10.config 2>/dev/null \
+    && ok "wpad 变体 = wpad-mesh-openssl（与原厂 ITB 一致）" \
+    || bad "配置未切到 wpad-mesh-openssl"
   W24=files/etc/uci-defaults/97-pt1570-r10-wifi24
   [ -f "$W24" ] \
     && ok "2.4G 开机兜底脚本在位" || bad "缺 $W24"

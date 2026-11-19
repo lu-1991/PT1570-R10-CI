@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""模拟 rtl_ax_ap 驱动的表解析器，编译前验证 42 张射频表能否全部通过。
+"""模拟 rtl_ax_ap 驱动的表解析器，编译前验证 70 张射频表能否全部通过。
 
 严格复现 board/wifi/rtl_ax_ap 下：
   phy.c::rtl_ax_phy_read_table      -> PHY_REG/PHY_REG_GAIN/RadioA/RadioB
